@@ -1,0 +1,10 @@
+models/*.onnx
+models/*.tar.bz2
+models/espeak-ng-data/
+output/
+.venv/
+target/
+__pycache__/
+*.pyc
+tools/piper/
+tools/*.tar.gz
