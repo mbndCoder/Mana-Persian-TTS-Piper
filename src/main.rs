@@ -19,4 +19,8 @@ fn main() {
             std::process::exit(1);
         }
     }
+
+    if let Err(e) = mana_tts::audio::play(&out) {
+        eprintln!("هشدار پخش: {e}");
+    }
 }

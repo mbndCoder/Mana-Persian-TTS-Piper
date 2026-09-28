@@ -56,6 +56,7 @@ pub fn synthesize(text: &str, out_wav: &Path) -> Result<(), TtsError> {
         .arg("-f")
         .arg(out_wav)
         .stdin(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()?;
 
