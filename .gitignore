@@ -8,3 +8,4 @@ __pycache__/
 *.pyc
 tools/piper/
 tools/*.tar.gz
+models/tokens.txt

@@ -1,111 +1,61 @@
-"""Phase 0 spike: validate Mana Persian Piper model + synthesize test wav via sherpa-onnx Python API."""
-import json
+"""Phase 0 oracle: synthesize the reference WAV with the official piper engine.
+
+Engine of record is the prebuilt piper binary (tools/piper/piper),
+NOT sherpa-onnx: the Mana ONNX carries no metadata, so sherpa's VITS
+loader (which requires sample_rate/n_speakers/language) cannot read it.
+
+Regenerates output/oracle.wav and asserts: valid RIFF, mono 16-bit,
+22050 Hz, longer than 1s, non-silent (RMS check).
+"""
+import math
+import struct
+import subprocess
 import sys
-import tarfile
+import wave
 from pathlib import Path
-from urllib.request import urlretrieve
 
-BASE_URL = "https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main"
-ESPEAK_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2"
+ROOT = Path(__file__).resolve().parent.parent
+MODEL = ROOT / "models" / "fa_IR-mana-medium.onnx"
+CONFIG = ROOT / "models" / "fa_IR-mana-medium.onnx.json"
+PIPER = ROOT / "tools" / "piper" / "piper"
+ORACLE = ROOT / "output" / "oracle.wav"
 
-MODEL_DIR = Path("models")
-OUTPUT_DIR = Path("output")
-CONFIG_PATH = MODEL_DIR / "fa_IR-mana-medium.onnx.json"
-MODEL_PATH = MODEL_DIR / "fa_IR-mana-medium.onnx"
-TOKENS_PATH = MODEL_DIR / "tokens.txt"
-ESPEAK_DIR = MODEL_DIR / "espeak-ng-data"
-ESPEAK_TAR = MODEL_DIR / "espeak-ng-data.tar.bz2"
-OUTPUT_WAV = OUTPUT_DIR / "test_python.wav"
-
-MODEL_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+TEXT = "سلام به همگی! تست اولیه سیستم تبدیل متن به گفتار مانا با موفقیت انجام شد."
 
 
-def download(filename: str, url: str, target: Path) -> None:
-    if not target.exists():
-        print(f"[*] downloading {filename}...")
-        urlretrieve(url, target)
-        print(f"[+] done: {filename}")
-    else:
-        print(f"[i] exists: {filename}")
-
-
-download("fa_IR-mana-medium.onnx.json", f"{BASE_URL}/fa_IR-mana-medium.onnx.json", CONFIG_PATH)
-download("fa_IR-mana-medium.onnx", f"{BASE_URL}/fa_IR-mana-medium.onnx", MODEL_PATH)
-download("espeak-ng-data.tar.bz2", ESPEAK_URL, ESPEAK_TAR)
-
-# sanity: model must not be truncated (HF XET partial downloads happen)
-size = MODEL_PATH.stat().st_size
-print(f"[i] model size: {size / 1024 / 1024:.1f} MB")
-if size < 50_000_000:
-    print("[!] model file too small, likely truncated. delete and re-download.")
+def fail(msg: str) -> None:
+    print(f"[X] {msg}")
     sys.exit(1)
 
-if not ESPEAK_DIR.exists():
-    print("[*] extracting espeak-ng-data...")
-    with tarfile.open(ESPEAK_TAR, "r:bz2") as tar:
-        tar.extractall(path=MODEL_DIR, filter="fully_trusted")
-    print("[+] extracted.")
 
-fa_voice = ESPEAK_DIR / "lang" / "ira" / "fa"
-if not fa_voice.exists():
-    print(f"[!] fa voice missing: {fa_voice}")
-    sys.exit(1)
-print("[+] fa espeak voice present.")
+size_mb = MODEL.stat().st_size / 1024 / 1024 if MODEL.exists() else 0
+print(f"[i] model: {MODEL} ({size_mb:.1f} MB)")
+if size_mb < 50:
+    fail("model missing or truncated (< 50 MB), re-download it")
+if not CONFIG.exists():
+    fail("model config json missing")
+if not PIPER.exists():
+    fail("piper binary missing at tools/piper/piper")
 
-with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-    config = json.load(f)
-
-phoneme_map = config.get("phoneme_id_map", {})
-print(f"[i] config sample_rate={config.get('audio', {}).get('sample_rate')}, "
-      f"voice={config.get('espeak', {}).get('voice')}, tokens={len(phoneme_map)}")
-
-normalized = []
-for token, ids in phoneme_map.items():
-    idx = ids[0] if isinstance(ids, list) else ids
-    normalized.append((token, int(idx)))
-sorted_tokens = sorted(normalized, key=lambda x: x[1])
-
-with open(TOKENS_PATH, "w", encoding="utf-8") as f:
-    for token, idx in sorted_tokens:
-        f.write(f"{token} {idx}\n")
-print(f"[+] wrote {TOKENS_PATH} ({len(sorted_tokens)} tokens, sorted by id).")
-
-try:
-    import sherpa_onnx
-    import soundfile as sf
-except ImportError:
-    print("[!] missing packages. run: pip install sherpa-onnx soundfile")
-    sys.exit(1)
-
-tts_config = sherpa_onnx.OfflineTtsConfig(
-    model=sherpa_onnx.OfflineTtsModelConfig(
-        vits=sherpa_onnx.OfflineTtsVitsModelConfig(
-            model=str(MODEL_PATH),
-            tokens=str(TOKENS_PATH),
-            data_dir=str(ESPEAK_DIR),
-            noise_scale=0.667,
-            noise_scale_w=0.8,
-            length_scale=1.0,
-        ),
-        num_threads=2,
-        debug=False,
-        provider="cpu",
-    )
+ORACLE.parent.mkdir(exist_ok=True)
+proc = subprocess.run(
+    [str(PIPER), "-m", str(MODEL), "-f", str(ORACLE)],
+    input=TEXT.encode("utf-8"),
+    capture_output=True,
 )
+if proc.returncode != 0:
+    fail(f"piper failed: {proc.stderr.decode(errors='replace').strip()}")
+print("[+] piper synthesis ok")
 
-print("[*] initializing TTS...")
-tts = sherpa_onnx.OfflineTts(tts_config)
+with wave.open(str(ORACLE), "rb") as w:
+    n, rate, ch, width = w.getnframes(), w.getframerate(), w.getnchannels(), w.getsampwidth()
+    samples = struct.unpack("<" + "h" * n, w.readframes(n))
 
-text = "سلام، تست اولیه سیستم تبدیل متن به گفتار مانا با موفقیت انجام شد."
-print(f"[*] synthesizing: '{text}'")
-audio = tts.generate(text, sid=0, speed=1.0)
+assert ch == 1, f"must be mono, got {ch}"
+assert rate == 22050, f"must be 22050 Hz, got {rate}"
+assert width == 2, "must be 16-bit"
+assert n > rate, f"must exceed 1s, got {n / rate:.2f}s"
+rms = math.sqrt(sum(s * s for s in samples) / n)
+assert rms > 100, f"output is silent (rms={rms:.0f})"
 
-if not len(audio.samples):
-    print("[!] empty audio output, synthesis failed.")
-    sys.exit(1)
-
-sf.write(str(OUTPUT_WAV), audio.samples, samplerate=audio.sample_rate, subtype="PCM_16")
-print(f"[+] saved: {OUTPUT_WAV}")
-print(f"    sample_rate={audio.sample_rate} Hz, frames={len(audio.samples)}, "
-      f"duration={len(audio.samples) / audio.sample_rate:.1f}s")
+print(f"[+] oracle ok: {ORACLE} ({n / rate:.1f}s, rms={rms:.0f})")
