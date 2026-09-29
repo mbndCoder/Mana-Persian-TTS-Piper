@@ -90,12 +90,17 @@ fn synthesize(
     if text.is_empty() {
         return Err("متن خالی است".to_string());
     }
-    if text.chars().count() > 2000 {
-        return Err("متن بیش از حد طولانی است (حداکثر ۲۰۰۰ نویسه)".to_string());
-    }
-
     let mut out = std::env::temp_dir();
     out.push(format!("manatts-{}-{}.wav", std::process::id(), text.len()));
+
+    // Guardrail, not a hard limit: piper synthesizes the whole text in one
+    // pass, so this is only a sanity bound on runtime and memory.
+    const MAX_CHARS: usize = 10_000;
+    if text.chars().count() > MAX_CHARS {
+        return Err(format!(
+            "متن خیلی طولانی است (حداکثر {MAX_CHARS} نویسه)"
+        ));
+    }
 
     mana_tts::tts::synthesize_with(&paths.piper, &paths.model, text, speed, &out)
         .map_err(|e| e.to_string())?;

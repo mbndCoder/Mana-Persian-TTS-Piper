@@ -15,7 +15,7 @@
   <main>
     <section class="card">
       <label class="field-label" for="text">متن فارسی</label>
-      <textarea id="text" rows="5" maxlength="2000" placeholder="متن را اینجا بنویسید…"></textarea>
+      <textarea id="text" rows="5" maxlength="10000" placeholder="متن را اینجا بنویسید…"></textarea>
       <div class="row between">
         <div class="samples">
           <button class="chip" data-sample="سلام به همگی!">سلام</button>
@@ -23,7 +23,7 @@
           <button class="chip" data-sample="امروز هوا چطور است؟">سؤالی</button>
         </div>
         <div class="row">
-          <span id="charCount" class="muted">۰ / ۲۰۰۰</span>
+          <span id="charCount" class="muted">۰ / ۱۰۰۰۰</span>
           <button id="clearBtn" class="ghost-btn">پاک کردن</button>
         </div>
       </div>
@@ -37,7 +37,7 @@
         </div>
         <button id="speakBtn" class="primary-btn">تولید و پخش صدا</button>
       </div>
-      <canvas id="wave" height="96"></canvas>
+      <canvas id="wave" height="72"></canvas>
       <div class="row between">
         <span id="duration" class="muted"></span>
         <span id="status" class="status"></span>

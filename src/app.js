@@ -56,7 +56,7 @@
   folderEl.addEventListener('input', persistSettings);
 
   textEl.addEventListener('input', function () {
-    charCount.textContent = faNum(textEl.value.length) + ' / ' + faNum(2000);
+    charCount.textContent = faNum(textEl.value.length) + ' / ' + faNum(10000);
   });
 
   var chips = document.querySelectorAll('.chip');
@@ -86,7 +86,7 @@
   }
   function drawWave(progress) {
     var dpr = window.devicePixelRatio || 1;
-    var w = wave.clientWidth, h = wave.clientHeight || 96;
+    var w = wave.clientWidth, h = wave.clientHeight || 72;
     wave.width = w * dpr; wave.height = h * dpr;
     var ctx = wave.getContext('2d');
     ctx.scale(dpr, dpr);
@@ -119,27 +119,42 @@
     if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
   }
 
+  function decodeWav(bytes) {
+    // WebKitGTK may only support the callback form; support both.
+    return new Promise(function (resolve, reject) {
+      var ab = bytes.buffer.slice(0);
+      var maybePromise = audioCtx.decodeAudioData(ab, resolve, reject);
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        maybePromise.then(resolve, reject);
+      }
+    });
+  }
+
   function playBuffer(buf) {
     stopAudio();
     if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-    if (audioCtx.state === 'suspended') { audioCtx.resume(); }
-    return audioCtx.decodeAudioData(buf.buffer).then(function (decoded) {
-      return new Promise(function (resolve) {
-        var src = audioCtx.createBufferSource();
-        src.buffer = decoded;
-        src.connect(audioCtx.destination);
-        var start = audioCtx.currentTime;
-        src.onended = function () { currentSrc = null; drawWave(0); resolve(); };
-        currentSrc = src;
-        src.start();
-        var timer = setInterval(function () {
-          if (!currentSrc) { clearInterval(timer); return; }
-          var p = (audioCtx.currentTime - start) / decoded.duration;
-          if (p >= 1) { clearInterval(timer); return; }
-          drawWave(p);
-        }, 80);
+    // The context starts suspended; starting the source before it is actually
+    // running silently drops the beginning of the clip.
+    var ready = audioCtx.state === 'suspended' ? audioCtx.resume() : Promise.resolve();
+    return Promise.resolve(ready)
+      .then(function () { return decodeWav(buf); })
+      .then(function (decoded) {
+        return new Promise(function (resolve) {
+          var src = audioCtx.createBufferSource();
+          src.buffer = decoded;
+          src.connect(audioCtx.destination);
+          var start = audioCtx.currentTime;
+          src.onended = function () { currentSrc = null; drawWave(0); resolve(); };
+          currentSrc = src;
+          src.start(0);
+          var timer = setInterval(function () {
+            if (!currentSrc) { clearInterval(timer); return; }
+            var p = (audioCtx.currentTime - start) / decoded.duration;
+            if (p >= 1) { clearInterval(timer); return; }
+            drawWave(p);
+          }, 80);
+        });
       });
-    });
   }
 
   /* ---- actions ---- */
