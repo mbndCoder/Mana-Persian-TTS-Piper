@@ -127,7 +127,27 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   border: 1px solid var(--border);
   border-radius: 10px;
 }
-.status { font-size: 0.85rem; min-height: 1.2em; }
+.dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--muted-fg); display: inline-block;
+}
+.dot.on { background: var(--accent); }
+.card h2 { margin: 0; }
+.code {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: ui-monospace, 'DejaVu Sans Mono', monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--fg);
+  text-align: left;
+}
+code { background: var(--muted); padding: 1px 5px; border-radius: 5px; font-size: 0.85em; }
 .status.error { color: var(--danger); }
 .folder-input {
   flex: 1;

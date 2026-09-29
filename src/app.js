@@ -174,6 +174,55 @@
       });
   });
 
+  /* ---------------- local API ---------------- */
+  var apiRunning = false;
+
+  function renderApi(info) {
+    apiRunning = !!info.running;
+    $('apiDot').className = 'dot' + (apiRunning ? ' on' : '');
+    $('apiState').textContent = apiRunning
+      ? 'روشن — پورت ' + faNum(info.port)
+      : 'خاموش';
+    $('apiToggle').textContent = apiRunning ? 'خاموش کردن' : 'روشن کردن';
+    $('apiUrl').value = apiRunning ? info.url : '';
+    $('apiCurl').textContent = apiRunning ? info.curl : '—';
+  }
+
+  function refreshApi() {
+    if (!invoke) { return; }
+    invoke('api_status').then(renderApi).catch(function () {});
+  }
+
+  $('apiToggle').addEventListener('click', function () {
+    if (!invoke) { return; }
+    var btn = $('apiToggle');
+    btn.disabled = true;
+    var call = apiRunning ? invoke('api_stop') : invoke('api_start');
+    call.then(renderApi)
+        .catch(function (err) { setStatus('خطای API: ' + err, true); })
+        .then(function () { btn.disabled = false; });
+  });
+
+  $('copyUrl').addEventListener('click', function () {
+    var url = $('apiUrl').value;
+    if (!url) { return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url)
+        .then(function () { setStatus('آدرس کپی شد'); })
+        .catch(function () { $('apiUrl').select(); setStatus('برای کپی: Ctrl+C', true); });
+    } else {
+      $('apiUrl').select();
+      setStatus('برای کپی: Ctrl+C', true);
+    }
+  });
+
+  if (invoke) {
+    // Agents and tools need the endpoint without opening the app first.
+    invoke('api_start')
+      .then(renderApi)
+      .catch(function (err) { setStatus('شروع API ناموفق بود: ' + err, true); });
+  }
+
   $('pickFolderBtn').addEventListener('click', function () {
     if (!invoke) { setStatus('خارج از محیط برنامه اجرا شده‌اید', true); return; }
     var btn = $('pickFolderBtn');

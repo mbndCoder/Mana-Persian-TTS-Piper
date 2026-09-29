@@ -1,11 +1,13 @@
 // Prevents additional console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod api;
+
 use std::path::{Path, PathBuf};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 /// Resolved engine paths, shared with all commands.
-struct EnginePaths {
+pub struct EnginePaths {
     piper: PathBuf,
     model: PathBuf,
 }
@@ -236,6 +238,57 @@ fn default_dir(app: tauri::AppHandle) -> String {
         .into_owned()
 }
 
+// ------------------------------------------------------------- API commands
+//
+// The Tauri command macros must live in the crate root, so the thin wrappers
+// are here while the server itself lives in `api`.
+
+struct ApiServer(std::sync::Mutex<Option<api::RunningServer>>);
+
+fn api_snapshot(server: &ApiServer) -> api::ApiInfo {
+    server
+        .0
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|s| s.port))
+        .map(api::ApiInfo::for_port)
+        .unwrap_or_else(api::ApiInfo::stopped)
+}
+
+#[tauri::command]
+fn api_status(server: State<'_, ApiServer>) -> api::ApiInfo {
+    api_snapshot(&server)
+}
+
+#[tauri::command]
+async fn api_start(
+    app: tauri::AppHandle,
+    server: State<'_, ApiServer>,
+) -> Result<api::ApiInfo, String> {
+    if server.0.lock().map(|g| g.is_some()).unwrap_or(true) {
+        return Ok(api_snapshot(&server));
+    }
+    let paths = app.state::<EnginePaths>();
+    let running = api::start(paths.piper.clone(), paths.model.clone()).await?;
+    let info = api::ApiInfo::for_port(running.port);
+    if let Ok(mut g) = server.0.lock() {
+        *g = Some(running);
+    }
+    let _ = app.emit("api-port", info.port);
+    Ok(info)
+}
+
+#[tauri::command]
+fn api_stop(app: tauri::AppHandle, server: State<'_, ApiServer>) -> api::ApiInfo {
+    if let Ok(mut g) = server.0.lock() {
+        if let Some(s) = g.take() {
+            s.stop();
+        }
+    }
+    let _ = app.emit("api-port", serde_json::Value::Null);
+    api::ApiInfo::stopped()
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -245,6 +298,7 @@ fn main() {
             app.manage(std::sync::Arc::new(
                 std::sync::atomic::AtomicBool::new(false),
             ));
+            app.manage(ApiServer(std::sync::Mutex::new(None)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -252,7 +306,10 @@ fn main() {
             play,
             save_audio,
             default_dir,
-            pick_folder
+            pick_folder,
+            api_status,
+            api_start,
+            api_stop
         ])
         .run(tauri::generate_context!())
         .expect("error while running ManaTTS");

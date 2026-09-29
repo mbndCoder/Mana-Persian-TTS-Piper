@@ -54,6 +54,24 @@
       </div>
       <p class="muted small">اگر خالی بماند، فایل کنار برنامه ذخیره می‌شود.</p>
     </section>
+
+    <section class="card">
+      <div class="row between">
+        <h2>اتصال API (برای ابزارها و ایجنت‌ها)</h2>
+        <div class="row">
+          <span id="apiDot" class="dot"></span>
+          <span id="apiState" class="muted">در حال بررسی…</span>
+          <button id="apiToggle" class="ghost-btn">روشن کردن</button>
+        </div>
+      </div>
+      <p class="muted small">سرویس محلی روی همین کامپیوتر و فقط روی <span dir="ltr">127.0.0.1</span> گوش می‌دهد؛ به اینترنت وصل نمی‌شود.</p>
+      <div class="row" style="margin-top:10px">
+        <input id="apiUrl" class="folder-input" type="text" readonly placeholder="آدرس سرویس…" />
+        <button id="copyUrl" class="ghost-btn">کپی آدرس</button>
+      </div>
+      <pre id="apiCurl" class="code" dir="ltr">—</pre>
+      <p class="muted small">پارامتر <code dir="ltr">speed</code> بین ۰٫۲۵ تا ۴٫۰ است (۱٫۰ = سرعت عادی). فرمت خروجی <span dir="ltr">wav</span>.</p>
+    </section>
   </main>
 
   <script src="app.js"></script>
