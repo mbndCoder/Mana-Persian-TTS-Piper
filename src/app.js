@@ -1,0 +1,194 @@
+/* ManaTTS frontend — vanilla JS, no build step, works fully offline. */
+(function () {
+  'use strict';
+
+  var FA_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+  function faNum(x) {
+    return String(x).replace(/[0-9]/g, function (d) { return FA_DIGITS[+d]; });
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var textEl = $('text'), speedEl = $('speed'), speedVal = $('speedVal'),
+      speakBtn = $('speakBtn'), saveBtn = $('saveBtn'), wave = $('wave'),
+      statusEl = $('status'), durationEl = $('duration'),
+      folderEl = $('folder'), charCount = $('charCount');
+
+  var invoke = null;
+  if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+    invoke = window.__TAURI__.core.invoke;
+  }
+
+  var state = { wavBase64: null, peaks: [], duration: 0, busy: false };
+  var audioCtx = null, currentSrc = null;
+
+  /* ---- theme ---- */
+  function setTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('manatts-theme', t); } catch (e) {}
+  }
+  var savedTheme = null;
+  try { savedTheme = localStorage.getItem('manatts-theme'); } catch (e) {}
+  setTheme(savedTheme === 'light' ? 'light' : 'dark');
+  $('themeBtn').addEventListener('click', function () {
+    var cur = document.documentElement.getAttribute('data-theme');
+    setTheme(cur === 'dark' ? 'light' : 'dark');
+    drawWave(0);
+  });
+
+  /* ---- settings persist ---- */
+  try {
+    var s = JSON.parse(localStorage.getItem('manatts-settings') || '{}');
+    if (s.speed) { speedEl.value = s.speed; }
+    if (s.folder) { folderEl.value = s.folder; }
+  } catch (e) {}
+  function persistSettings() {
+    try {
+      localStorage.setItem('manatts-settings', JSON.stringify({
+        speed: parseFloat(speedEl.value), folder: folderEl.value
+      }));
+    } catch (e) {}
+  }
+
+  function fmtSpeed(v) { return faNum(v.toFixed(2).replace('.', '٫')) + '×'; }
+  function refreshSpeed() { speedVal.textContent = fmtSpeed(parseFloat(speedEl.value)); }
+  speedEl.addEventListener('input', function () { refreshSpeed(); persistSettings(); });
+  refreshSpeed();
+  folderEl.addEventListener('input', persistSettings);
+
+  textEl.addEventListener('input', function () {
+    charCount.textContent = faNum(textEl.value.length) + ' / ' + faNum(2000);
+  });
+
+  var chips = document.querySelectorAll('.chip');
+  for (var i = 0; i < chips.length; i++) {
+    (function (c) {
+      c.addEventListener('click', function () {
+        textEl.value = c.getAttribute('data-sample');
+        textEl.dispatchEvent(new Event('input'));
+        textEl.focus();
+      });
+    })(chips[i]);
+  }
+  $('clearBtn').addEventListener('click', function () {
+    textEl.value = '';
+    textEl.dispatchEvent(new Event('input'));
+    textEl.focus();
+  });
+
+  function setStatus(msg, isErr) {
+    statusEl.textContent = msg || '';
+    statusEl.className = 'status' + (isErr ? ' error' : '');
+  }
+
+  /* ---- waveform ---- */
+  function waveColor() {
+    return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#22c55e';
+  }
+  function drawWave(progress) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = wave.clientWidth, h = wave.clientHeight || 96;
+    wave.width = w * dpr; wave.height = h * dpr;
+    var ctx = wave.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    var peaks = state.peaks;
+    if (!peaks.length) {
+      ctx.fillStyle = '#808080';
+      ctx.font = '13px Vazirmatn, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('موج صدا اینجا نمایش داده می‌شود', w / 2, h / 2);
+      return;
+    }
+    var n = peaks.length, bw = w / n, mid = h / 2;
+    for (var i = 0; i < n; i++) {
+      var ph = Math.max(2, peaks[i] * (h - 12));
+      ctx.fillStyle = (i / n <= progress) ? waveColor() : '#64748b';
+      ctx.fillRect(i * bw, mid - ph / 2, Math.max(1, bw - 1), ph);
+    }
+  }
+  window.addEventListener('resize', function () { drawWave(0); });
+  drawWave(0);
+
+  function b64ToBytes(b64) {
+    var bin = atob(b64), len = bin.length, out = new Uint8Array(len);
+    for (var i = 0; i < len; i++) { out[i] = bin.charCodeAt(i); }
+    return out;
+  }
+
+  function stopAudio() {
+    if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+  }
+
+  function playBuffer(buf) {
+    stopAudio();
+    if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    if (audioCtx.state === 'suspended') { audioCtx.resume(); }
+    return audioCtx.decodeAudioData(buf.buffer).then(function (decoded) {
+      return new Promise(function (resolve) {
+        var src = audioCtx.createBufferSource();
+        src.buffer = decoded;
+        src.connect(audioCtx.destination);
+        var start = audioCtx.currentTime;
+        src.onended = function () { currentSrc = null; drawWave(0); resolve(); };
+        currentSrc = src;
+        src.start();
+        var timer = setInterval(function () {
+          if (!currentSrc) { clearInterval(timer); return; }
+          var p = (audioCtx.currentTime - start) / decoded.duration;
+          if (p >= 1) { clearInterval(timer); return; }
+          drawWave(p);
+        }, 80);
+      });
+    });
+  }
+
+  /* ---- actions ---- */
+  speakBtn.addEventListener('click', function () {
+    if (!invoke) { setStatus('خارج از محیط برنامه اجرا شده‌اید', true); return; }
+    var text = textEl.value.trim();
+    if (!text) { setStatus('اول متنی بنویسید', true); textEl.focus(); return; }
+    if (state.busy) { return; }
+    state.busy = true;
+    speakBtn.disabled = true;
+    setStatus('در حال تولید صدا…');
+    invoke('synthesize', { text: text, speed: parseFloat(speedEl.value) })
+      .then(function (res) {
+        state.wavBase64 = res.wavBase64;
+        state.peaks = res.peaks;
+        state.duration = res.durationSecs;
+        durationEl.textContent = 'مدت: ' + faNum(res.durationSecs.toFixed(1)) + ' ثانیه';
+        saveBtn.disabled = false;
+        setStatus('در حال پخش…');
+        return playBuffer(b64ToBytes(res.wavBase64));
+      })
+      .then(function () { setStatus('تمام شد'); })
+      .catch(function (err) { setStatus(String(err), true); })
+      .then(function () {
+        state.busy = false;
+        speakBtn.disabled = false;
+      });
+  });
+
+  $('defaultFolderBtn').addEventListener('click', function () {
+    if (!invoke) { return; }
+    invoke('default_dir').then(function (d) {
+      folderEl.value = d;
+      persistSettings();
+    }).catch(function (err) { setStatus(String(err), true); });
+  });
+
+  saveBtn.addEventListener('click', function () {
+    if (!invoke || !state.wavBase64) { return; }
+    setStatus('در حال ذخیره…');
+    var name = 'mana-' + Date.now();
+    invoke('save_audio', { wavBase64: state.wavBase64, dir: folderEl.value.trim(), filename: name })
+      .then(function (p) { setStatus('ذخیره شد: ' + p); })
+      .catch(function (err) { setStatus(String(err), true); });
+  });
+
+  if (invoke) {
+    invoke('default_dir').then(function (d) {
+      if (!folderEl.value) { folderEl.value = d; }
+    }).catch(function () {});
+  }
+})();

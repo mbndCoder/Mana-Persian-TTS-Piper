@@ -48,13 +48,32 @@ pub fn model_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("models/fa_IR-mana-medium.onnx"))
 }
 
-/// Synthesize Persian `text` into a WAV file at `out_wav` using the piper binary.
-pub fn synthesize(text: &str, out_wav: &Path) -> Result<(), TtsError> {
-    let mut child = Command::new(piper_bin())
+/// Synthesize Persian `text` into a WAV file at `out_wav`.
+///
+/// `speed` is the speaking rate (1.0 = normal); it maps to piper's
+/// `--length-scale` as `1 / speed` and is clamped to 0.5..=2.0.
+pub fn synthesize(text: &str, speed: f32, out_wav: &Path) -> Result<(), TtsError> {
+    synthesize_with(piper_bin().as_path(), model_path().as_path(), text, speed, out_wav)
+}
+
+/// Same as [`synthesize`] but with explicit engine paths (used by the bundled app).
+pub fn synthesize_with(
+    piper: &Path,
+    model: &Path,
+    text: &str,
+    speed: f32,
+    out_wav: &Path,
+) -> Result<(), TtsError> {
+    let speed = speed.clamp(0.5, 2.0);
+    let length_scale = 1.0 / speed;
+
+    let mut child = Command::new(piper)
         .arg("-m")
-        .arg(model_path())
+        .arg(model)
         .arg("-f")
         .arg(out_wav)
+        .arg("--length-scale")
+        .arg(length_scale.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

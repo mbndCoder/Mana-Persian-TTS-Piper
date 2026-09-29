@@ -3,6 +3,9 @@ name = "mana-tts"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["src-tauri"]
+
 [dependencies]
 rodio = "0.17"
 

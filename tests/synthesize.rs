@@ -9,7 +9,7 @@ fn unique_wav(name: &str) -> PathBuf {
 #[test]
 fn synthesize_produces_valid_persian_wav() {
     let out = unique_wav("test");
-    mana_tts::tts::synthesize("سلام دنیا، موتور تبدیل متن به گفتار مانا آماده است.", &out)
+    mana_tts::tts::synthesize("سلام دنیا، موتور تبدیل متن به گفتار مانا آماده است.", 1.0, &out)
         .expect("synthesis must succeed");
 
     let reader = hound::WavReader::open(&out).expect("output must be a valid wav");

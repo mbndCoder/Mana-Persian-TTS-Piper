@@ -9,7 +9,7 @@ fn unique_wav(name: &str) -> PathBuf {
 #[test]
 fn rodio_decodes_engine_output() {
     let out = unique_wav("playback");
-    mana_tts::tts::synthesize("سلام دنیا، موتور تبدیل متن به گفتار مانا آماده است.", &out)
+    mana_tts::tts::synthesize("سلام دنیا، موتور تبدیل متن به گفتار مانا آماده است.", 1.0, &out)
         .expect("synthesis must succeed");
 
     let samples = mana_tts::audio::decoded_samples(&out).expect("rodio must decode it");

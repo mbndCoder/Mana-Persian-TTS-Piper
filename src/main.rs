@@ -12,7 +12,7 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("output/cli.wav"));
 
-    match tts::synthesize(&text, &out) {
+    match tts::synthesize(&text, 1.0, &out) {
         Ok(()) => println!("ذخیره شد: {}", out.display()),
         Err(e) => {
             eprintln!("خطا: {e}");
