@@ -165,15 +165,32 @@ async fn play(
     result.unwrap_or_else(|e| Err(e))
 }
 
+/// Open the native folder picker.
+///
+/// Uses the callback form on purpose: the blocking_* dialog methods deadlock
+/// the event loop when called from the main thread, which is where a sync
+/// Tauri command runs. This is the documented cross-platform pattern.
 #[tauri::command]
-fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel();
     app.dialog()
         .file()
         .set_title("انتخاب پوشه خروجی")
-        .blocking_pick_folder()
+        .pick_folder(move |folder| {
+            let _ = tx.send(folder);
+        });
+
+    // Blocks this async worker (not the main thread) until the user answers.
+    let picked = tauri::async_runtime::spawn_blocking(move || rx.recv().ok())
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "دیالوگ پوشه بسته شد".to_string())?;
+
+    Ok(picked
         .and_then(|p| p.into_path().ok())
-        .map(|p| p.to_string_lossy().into_owned())
+        .map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]

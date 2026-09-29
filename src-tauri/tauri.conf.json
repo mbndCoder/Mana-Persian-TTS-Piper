@@ -39,7 +39,8 @@
       "../models/fa_IR-mana-medium.onnx",
       "../models/fa_IR-mana-medium.onnx.json",
       "../tools/piper/piper",
-      "../tools/piper/*.so*"
+      "../tools/piper/*.so*",
+      "../tools/piper/espeak-ng-data"
     ]
   }
 }

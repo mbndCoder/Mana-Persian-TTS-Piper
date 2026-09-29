@@ -67,6 +67,15 @@ pub fn synthesize_with(
     let speed = speed.clamp(0.5, 2.0);
     let length_scale = 1.0 / speed;
 
+    // Pass the phonemizer data explicitly. Without this piper falls back to a
+    // compiled-in system path (/usr/share/espeak-ng-data) and produces NO audio
+    // at all on a machine that has no system-wide espeak-ng-data.
+    let espeak_data = piper
+        .parent()
+        .map(|d| d.join("espeak-ng-data"))
+        .filter(|p| p.is_dir())
+        .unwrap_or_else(|| PathBuf::from("espeak-ng-data"));
+
     let mut child = Command::new(piper)
         .arg("-m")
         .arg(model)
@@ -74,6 +83,8 @@ pub fn synthesize_with(
         .arg(out_wav)
         .arg("--length-scale")
         .arg(length_scale.to_string())
+        .arg("--espeak_data")
+        .arg(&espeak_data)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

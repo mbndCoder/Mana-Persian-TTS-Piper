@@ -176,9 +176,16 @@
 
   $('pickFolderBtn').addEventListener('click', function () {
     if (!invoke) { setStatus('خارج از محیط برنامه اجرا شده‌اید', true); return; }
-    invoke('pick_folder').then(function (d) {
-      if (d) { folderEl.value = d; persistSettings(); setStatus('پوشه انتخاب شد'); }
-    }).catch(function (err) { setStatus(String(err), true); });
+    var btn = $('pickFolderBtn');
+    btn.disabled = true;
+    setStatus('در انتظار انتخاب پوشه…');
+    invoke('pick_folder')
+      .then(function (d) {
+        if (d) { folderEl.value = d; persistSettings(); setStatus('پوشه انتخاب شد'); }
+        else { setStatus('انتخاب پوشه لغو شد'); }
+      })
+      .catch(function (err) { setStatus('انتخاب پوشه ناموفق: ' + err, true); })
+      .then(function () { btn.disabled = false; });
   });
 
   $('defaultFolderBtn').addEventListener('click', function () {
