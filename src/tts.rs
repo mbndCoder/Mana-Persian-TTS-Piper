@@ -67,24 +67,7 @@ pub fn synthesize_with(
     let speed = speed.clamp(0.5, 2.0);
     let length_scale = 1.0 / speed;
 
-    // Pass the phonemizer data explicitly. Without this piper falls back to a
-    // compiled-in system path (/usr/share/espeak-ng-data) and produces NO audio
-    // at all on a machine that has no system-wide espeak-ng-data.
-    let espeak_data = piper
-        .parent()
-        .map(|d| d.join("espeak-ng-data"))
-        .filter(|p| p.is_dir())
-        .unwrap_or_else(|| PathBuf::from("espeak-ng-data"));
-
-    let mut child = Command::new(piper)
-        .arg("-m")
-        .arg(model)
-        .arg("-f")
-        .arg(out_wav)
-        .arg("--length-scale")
-        .arg(length_scale.to_string())
-        .arg("--espeak_data")
-        .arg(&espeak_data)
+    let mut child = engine_command(piper, model, out_wav, length_scale)?
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -107,4 +90,86 @@ pub fn synthesize_with(
         Ok(meta) if meta.len() > 1000 => Ok(()),
         _ => Err(TtsError::EmptyOutput(out_wav.to_path_buf())),
     }
+}
+
+/// Build the engine command.
+///
+/// Two backends honor the same contract (`-m model -f out --length-scale x`,
+/// text on stdin, WAV on success):
+/// 1. The native `piper` binary (bundled on Linux; zero prerequisites).
+/// 2. `python -m piper` (Windows/macOS fallback; needs `pip install piper-tts`,
+///    documented in the README). The wheel carries its own espeak-ng data.
+fn engine_command(
+    piper: &Path,
+    model: &Path,
+    out_wav: &Path,
+    length_scale: f32,
+) -> Result<Command, TtsError> {
+    if piper.is_file() {
+        // Pass the phonemizer data explicitly. Without this piper falls back to a
+        // compiled-in system path (/usr/share/espeak-ng-data) and produces NO audio
+        // at all on a machine that has no system-wide espeak-ng-data.
+        let espeak_data = piper
+            .parent()
+            .map(|d| d.join("espeak-ng-data"))
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| PathBuf::from("espeak-ng-data"));
+
+        let mut cmd = Command::new(piper);
+        cmd.arg("-m")
+            .arg(model)
+            .arg("-f")
+            .arg(out_wav)
+            .arg("--length-scale")
+            .arg(length_scale.to_string())
+            .arg("--espeak_data")
+            .arg(&espeak_data);
+        return Ok(cmd);
+    }
+
+    // Native binary absent (typical on Windows/macOS): fall back to the
+    // piper-tts Python package, whose wheel bundles its own espeak-ng data.
+    let python = python_interpreter().ok_or_else(|| {
+        TtsError::PiperFailed(
+            "موتور piper یافت نشد؛ piper-tts را با pip نصب کنید: pip install piper-tts".to_string(),
+        )
+    })?;
+    let mut cmd = Command::new(python);
+    cmd.arg("-m")
+        .arg("piper")
+        .arg("-m")
+        .arg(model)
+        .arg("--length-scale")
+        .arg(length_scale.to_string())
+        .arg("-f")
+        .arg(out_wav);
+    Ok(cmd)
+}
+
+/// Pick a Python interpreter that exists. `MANA_PYTHON` overrides the search.
+fn python_interpreter() -> Option<PathBuf> {
+    if let Some(custom) = std::env::var_os("MANA_PYTHON") {
+        let p = PathBuf::from(custom);
+        if exists_on_path(&p) {
+            return Some(p);
+        }
+        return None;
+    }
+    #[cfg(windows)]
+    let candidates = ["py", "python", "python3"];
+    #[cfg(not(windows))]
+    let candidates = ["python3", "python"];
+    candidates
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| exists_on_path(p))
+}
+
+fn exists_on_path(p: &Path) -> bool {
+    if p.is_absolute() {
+        return p.is_file();
+    }
+    std::env::var_os("PATH").map_or(false, |paths| {
+        std::env::split_paths(&paths).any(|d| d.join(p).is_file())
+    })
 }

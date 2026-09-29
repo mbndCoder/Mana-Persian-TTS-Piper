@@ -12,11 +12,42 @@ pub struct EnginePaths {
     model: PathBuf,
 }
 
-fn candidate_files(dir: &Path) -> (PathBuf, PathBuf) {
-    (
-        dir.join("piper").join("piper"),
-        dir.join("models").join("fa_IR-mana-medium.onnx"),
-    )
+/// Locate the engine inside a bundle root.
+///
+/// Tauri preserves the configured resource paths, so the real layout is
+/// `<root>/tools/piper/piper` and `<root>/models/fa_IR-mana-medium.onnx`.
+/// Several shapes are accepted so the app also runs from an unpacked AppDir
+/// or a plain zip.
+fn find_in(root: &Path) -> Option<(PathBuf, PathBuf)> {
+    let piper_rel = [
+        Path::new("tools/piper/piper"),
+        Path::new("piper/piper"),
+        Path::new("piper"),
+    ];
+    let model_rel = [
+        Path::new("models/fa_IR-mana-medium.onnx"),
+        Path::new("fa_IR-mana-medium.onnx"),
+    ];
+    let piper = piper_rel
+        .iter()
+        .map(|p| root.join(p))
+        .find(|p| p.is_file())
+        .or_else(|| {
+            // one level down, e.g. <root>/resources/... or <root>/lib/...
+            std::fs::read_dir(root).ok().and_then(|entries| {
+                entries.flatten().find_map(|e| {
+                    let sub = e.path();
+                    piper_rel.iter().map(|p| sub.join(p)).find(|p| p.is_file())
+                })
+            })
+        })?;
+    let model = model_rel
+        .iter()
+        .map(|p| piper.parent().map(|d| d.join(p)))
+        .chain(model_rel.iter().map(|p| Some(root.join(p))))
+        .flatten()
+        .find(|p| p.is_file())?;
+    Some((piper, model))
 }
 
 /// Resolve piper binary + model:
@@ -31,15 +62,15 @@ fn resolve_paths(app: &tauri::AppHandle) -> EnginePaths {
         return EnginePaths { piper, model };
     }
     if let Ok(res) = app.path().resource_dir() {
-        let (piper, model) = candidate_files(&res);
-        if piper.exists() && model.exists() {
-            return EnginePaths { piper, model };
-        }
-        // dev layout: resources land directly under target/... — also try parent
-        if let Some(parent) = res.parent() {
-            let (piper, model) = candidate_files(parent);
-            if piper.exists() && model.exists() {
-                return EnginePaths { piper, model };
+        for root in [res.clone(), res.parent().unwrap_or(&res).to_path_buf()]
+            .into_iter()
+            .chain(std::fs::read_dir(&res).ok().map(|_| res.clone()).into_iter())
+        {
+            if let Some(found) = find_in(&root) {
+                return EnginePaths {
+                    piper: found.0,
+                    model: found.1,
+                };
             }
         }
     }
@@ -328,6 +359,43 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: the real bundle layout is <root>/tools/piper/piper and
+    /// <root>/models/*.onnx, but the resolver used to look for <root>/piper/piper,
+    /// so the packaged app could never find its engine.
+    #[test]
+    fn find_in_matches_the_real_bundle_layout() {
+        let root = std::env::temp_dir().join(format!("manatts-layout-{}", std::process::id()));
+        let piper_dir = root.join("tools/piper");
+        let model_dir = root.join("models");
+        std::fs::create_dir_all(&piper_dir).unwrap();
+        std::fs::create_dir_all(&model_dir).unwrap();
+        std::fs::write(piper_dir.join("piper"), b"x").unwrap();
+        std::fs::write(model_dir.join("fa_IR-mana-medium.onnx"), b"x").unwrap();
+
+        let (piper, model) = find_in(&root).expect("engine must be found in bundle layout");
+        assert_eq!(piper, piper_dir.join("piper"));
+        assert_eq!(model, model_dir.join("fa_IR-mana-medium.onnx"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn find_in_also_accepts_a_flat_layout() {
+        let root = std::env::temp_dir().join(format!("manatts-flat-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("piper"), b"x").unwrap();
+        std::fs::write(root.join("fa_IR-mana-medium.onnx"), b"x").unwrap();
+        assert!(find_in(&root).is_some(), "flat layout must be supported");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn find_in_returns_none_when_engine_is_absent() {
+        let root = std::env::temp_dir().join(format!("manatts-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(find_in(&root).is_none());
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     /// Regression: peaks were normalized by i32::MAX while samples are 16-bit,
     /// which produced an all-zero (flat) waveform.

@@ -25,3 +25,23 @@ fn synthesize_produces_valid_persian_wav() {
     );
     std::fs::remove_file(&out).ok();
 }
+
+#[test]
+fn python_fallback_synthesizes_when_native_binary_is_absent() {
+    let out = unique_wav("fallback");
+    mana_tts::tts::synthesize_with(
+        std::path::Path::new("tools/piper/does-not-exist"),
+        std::path::Path::new("models/fa_IR-mana-medium.onnx"),
+        "سلام دنیا، تست مسیر جایگزین پایتون.",
+        1.0,
+        &out,
+    )
+    .expect("python fallback must synthesize");
+
+    let reader = hound::WavReader::open(&out).expect("output must be a valid wav");
+    let spec = reader.spec();
+    assert_eq!(spec.sample_rate, 22050);
+    let frames = reader.len() / spec.channels as u32;
+    assert!(frames > spec.sample_rate, "must exceed 1s, got {frames} frames");
+    std::fs::remove_file(&out).ok();
+}

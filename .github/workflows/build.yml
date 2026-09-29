@@ -1,0 +1,94 @@
+name: Build ManaTTS
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: dmg
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libasound2-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The 61MB model is git-ignored; every platform fetches it here.
+      - name: Download Mana model
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx \
+            -o models/fa_IR-mana-medium.onnx
+          curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx.json \
+            -o models/fa_IR-mana-medium.onnx.json
+          python3 -c "import json; c=json.load(open('models/fa_IR-mana-medium.onnx.json')); assert c['audio']['sample_rate']==22050; print('model config ok')"
+
+      # Native engine is bundled on Linux only. Windows/macOS use the
+      # `python -m piper` fallback (pip installs piper-tts at runtime;
+      # see README "Prerequisites").
+      - name: Download native piper engine (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p tools
+          curl -L https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_amd64.tar.gz \
+            -o tools/piper_amd64.tar.gz
+          tar -xzf tools/piper_amd64.tar.gz -C tools/
+          ./tools/piper/piper --help | head -3
+
+      - name: Build frontend assets check
+        shell: bash
+        run: |
+          test -f src/index.html
+          test -f src-tauri/tauri.conf.json
+
+      - name: Build app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: manatts-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/
+          if-no-files-found: error
