@@ -70,23 +70,27 @@ fn waveform_peaks(wav: &Path, buckets: usize) -> Result<(u32, Vec<f32>), String>
     if samples.is_empty() {
         return Err("خروجی خالی است".to_string());
     }
+    // Normalize against the file's own full-scale, not i32::MAX: the samples
+    // are 16-bit, so dividing by i32::MAX flattens every peak to ~0.
+    let full_scale = ((1i64 << (spec.bits_per_sample - 1)) - 1) as f32;
     let per_bucket = (samples.len() / buckets).max(1);
-    let peaks = samples
+    let peaks: Vec<f32> = samples
         .chunks(per_bucket)
         .map(|c| {
-            c.iter().map(|s| s.abs() as f32 / i32::MAX as f32).fold(0.0, f32::max)
+            (c.iter().map(|s| (*s as f32).abs()).fold(0.0, f32::max) / full_scale).min(1.0)
         })
         .collect();
     Ok((spec.sample_rate, peaks))
 }
 
 #[tauri::command]
-fn synthesize(
+async fn synthesize(
     text: String,
     speed: f32,
     paths: State<'_, EnginePaths>,
 ) -> Result<SynthResult, String> {
-    let text = text.trim();
+    // Owned so the blocking task can take it by move.
+    let text = text.trim().to_string();
     if text.is_empty() {
         return Err("متن خالی است".to_string());
     }
@@ -102,8 +106,17 @@ fn synthesize(
         ));
     }
 
-    mana_tts::tts::synthesize_with(&paths.piper, &paths.model, text, speed, &out)
-        .map_err(|e| e.to_string())?;
+    // Piper runs for seconds; keep it off the UI thread.
+    let piper = paths.piper.clone();
+    let model = paths.model.clone();
+    let out_for_task = out.clone();
+    let speed = speed;
+    tauri::async_runtime::spawn_blocking(move || {
+        mana_tts::tts::synthesize_with(&piper, &model, &text, speed, &out_for_task)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     let bytes = std::fs::read(&out).map_err(|e| e.to_string())?;
     let (sample_rate, peaks) = waveform_peaks(&out, 400)?;
@@ -118,6 +131,49 @@ fn synthesize(
         duration_secs,
         peaks,
     })
+}
+
+/// Play a previously synthesized WAV through rodio.
+///
+/// Playback deliberately does NOT go through WebKit's AudioContext: on this
+/// platform its audio backend never starts (the context clock stays frozen and
+/// every clip is silently dropped). rodio is the path already proven to work.
+#[tauri::command]
+async fn play(
+    app: tauri::AppHandle,
+    wav_path: String,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let playing = app.state::<Arc<std::sync::atomic::AtomicBool>>().inner().clone();
+    if playing
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("در حال پخش صدای قبلی…".to_string());
+    }
+
+    let path = PathBuf::from(&wav_path);
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        mana_tts::audio::play(&path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string());
+
+    playing.store(false, Ordering::SeqCst);
+    result.unwrap_or_else(|e| Err(e))
+}
+
+#[tauri::command]
+fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .file()
+        .set_title("انتخاب پوشه خروجی")
+        .blocking_pick_folder()
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -165,12 +221,72 @@ fn default_dir(app: tauri::AppHandle) -> String {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let paths = resolve_paths(app.handle());
             app.manage(paths);
+            app.manage(std::sync::Arc::new(
+                std::sync::atomic::AtomicBool::new(false),
+            ));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![synthesize, save_audio, default_dir])
+        .invoke_handler(tauri::generate_handler![
+            synthesize,
+            play,
+            save_audio,
+            default_dir,
+            pick_folder
+        ])
         .run(tauri::generate_context!())
         .expect("error while running ManaTTS");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: peaks were normalized by i32::MAX while samples are 16-bit,
+    /// which produced an all-zero (flat) waveform.
+    #[test]
+    fn waveform_peaks_are_normalized_to_the_files_bit_depth() {
+        let mut p = std::env::temp_dir();
+        p.push(format!("manatts-peaks-{}.wav", std::process::id()));
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 22050,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut w = hound::WavWriter::create(&p, spec).unwrap();
+        for i in 0..22050 {
+            let v = if i % 200 < 100 { 20000i16 } else { -20000i16 };
+            w.write_sample(v).unwrap();
+        }
+        w.finalize().unwrap();
+
+        let (_rate, peaks) = waveform_peaks(&p, 100).unwrap();
+        let loudest = peaks.iter().cloned().fold(0.0f32, f32::max);
+        assert!(
+            loudest > 0.5,
+            "peaks must reflect real amplitude, got max {loudest}"
+        );
+        assert!(peaks.iter().all(|v| (0.0..=1.0).contains(v)));
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn empty_wav_is_rejected() {
+        let mut p = std::env::temp_dir();
+        p.push(format!("manatts-empty-{}.wav", std::process::id()));
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 22050,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut w = hound::WavWriter::create(&p, spec).unwrap();
+        w.finalize().unwrap();
+        assert!(waveform_peaks(&p, 100).is_err());
+        std::fs::remove_file(&p).ok();
+    }
 }

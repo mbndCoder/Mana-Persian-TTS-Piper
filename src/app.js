@@ -130,31 +130,18 @@
     });
   }
 
-  function playBuffer(buf) {
+  /* Playback goes through Rust/rodio, not WebAudio: WebKit's audio backend
+     never starts on this platform, so every clip is silently dropped. The
+     waveform is animated on a wall clock for the same reason. */
+  function animateWhilePlaying(durationSec) {
     stopAudio();
-    if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-    // The context starts suspended; starting the source before it is actually
-    // running silently drops the beginning of the clip.
-    var ready = audioCtx.state === 'suspended' ? audioCtx.resume() : Promise.resolve();
-    return Promise.resolve(ready)
-      .then(function () { return decodeWav(buf); })
-      .then(function (decoded) {
-        return new Promise(function (resolve) {
-          var src = audioCtx.createBufferSource();
-          src.buffer = decoded;
-          src.connect(audioCtx.destination);
-          var start = audioCtx.currentTime;
-          src.onended = function () { currentSrc = null; drawWave(0); resolve(); };
-          currentSrc = src;
-          src.start(0);
-          var timer = setInterval(function () {
-            if (!currentSrc) { clearInterval(timer); return; }
-            var p = (audioCtx.currentTime - start) / decoded.duration;
-            if (p >= 1) { clearInterval(timer); return; }
-            drawWave(p);
-          }, 80);
-        });
-      });
+    var start = performance.now();
+    currentSrc = { stop: function () { clearInterval(currentSrc._t); } };
+    currentSrc._t = setInterval(function () {
+      var p = (performance.now() - start) / 1000 / durationSec;
+      if (p >= 1) { stopAudio(); drawWave(0); return; }
+      drawWave(p);
+    }, 80);
   }
 
   /* ---- actions ---- */
@@ -171,10 +158,13 @@
         state.wavBase64 = res.wavBase64;
         state.peaks = res.peaks;
         state.duration = res.durationSecs;
+        state.outPath = res.outPath;
         durationEl.textContent = 'مدت: ' + faNum(res.durationSecs.toFixed(1)) + ' ثانیه';
         saveBtn.disabled = false;
         setStatus('در حال پخش…');
-        return playBuffer(b64ToBytes(res.wavBase64));
+        drawWave(0);
+        animateWhilePlaying(res.durationSecs);
+        return invoke('play', { wavPath: res.outPath });
       })
       .then(function () { setStatus('تمام شد'); })
       .catch(function (err) { setStatus(String(err), true); })
@@ -182,6 +172,13 @@
         state.busy = false;
         speakBtn.disabled = false;
       });
+  });
+
+  $('pickFolderBtn').addEventListener('click', function () {
+    if (!invoke) { setStatus('خارج از محیط برنامه اجرا شده‌اید', true); return; }
+    invoke('pick_folder').then(function (d) {
+      if (d) { folderEl.value = d; persistSettings(); setStatus('پوشه انتخاب شد'); }
+    }).catch(function (err) { setStatus(String(err), true); });
   });
 
   $('defaultFolderBtn').addEventListener('click', function () {
