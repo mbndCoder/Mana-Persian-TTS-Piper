@@ -135,6 +135,10 @@ fn engine_command(
         )
     })?;
     let mut cmd = Command::new(python);
+    // AppImage-style bundles export PYTHONHOME/PYTHONPATH pointing inside the
+    // bundle, which breaks the *system* interpreter. Strip them so the
+    // fallback always runs against the real system Python.
+    cmd.env_remove("PYTHONHOME").env_remove("PYTHONPATH");
     cmd.arg("-m")
         .arg("piper")
         .arg("-m")

@@ -14,37 +14,44 @@ pub struct EnginePaths {
 
 /// Locate the engine inside a bundle root.
 ///
-/// Tauri preserves the configured resource paths, so the real layout is
-/// `<root>/tools/piper/piper` and `<root>/models/fa_IR-mana-medium.onnx`.
-/// Several shapes are accepted so the app also runs from an unpacked AppDir
-/// or a plain zip.
+/// Real layouts vary: `<root>/tools/piper/piper` (zip), or one extra level
+/// down like AppImage's `<root>/_up_/tools/piper/piper`. Search `root`, its
+/// parent chain (a few levels up), and one directory level down at each step.
 fn find_in(root: &Path) -> Option<(PathBuf, PathBuf)> {
-    let piper_rel = [
-        Path::new("tools/piper/piper"),
-        Path::new("piper/piper"),
-        Path::new("piper"),
-    ];
-    let model_rel = [
-        Path::new("models/fa_IR-mana-medium.onnx"),
-        Path::new("fa_IR-mana-medium.onnx"),
-    ];
-    let piper = piper_rel
-        .iter()
-        .map(|p| root.join(p))
-        .find(|p| p.is_file())
-        .or_else(|| {
-            // one level down, e.g. <root>/resources/... or <root>/lib/...
-            std::fs::read_dir(root).ok().and_then(|entries| {
-                entries.flatten().find_map(|e| {
-                    let sub = e.path();
-                    piper_rel.iter().map(|p| sub.join(p)).find(|p| p.is_file())
-                })
-            })
-        })?;
-    let model = model_rel
+    let mut dirs = vec![root.to_path_buf()];
+    let mut up = root;
+    for _ in 0..3 {
+        if let Some(parent) = up.parent() {
+            dirs.push(parent.to_path_buf());
+            up = parent;
+        } else {
+            break;
+        }
+    }
+    // one level down at every candidate level (AppImage `_up_`, lib dirs, …)
+    let mut with_children = dirs.clone();
+    for d in &dirs {
+        if let Ok(entries) = std::fs::read_dir(d) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    with_children.push(p);
+                }
+            }
+        }
+    }
+    with_children.iter().find_map(|d| find_shallow(d))
+}
+
+/// Look for the engine directly under `dir` (no recursion).
+fn find_shallow(dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    const PIPER_REL: [&str; 3] = ["tools/piper/piper", "piper/piper", "piper"];
+    const MODEL_REL: [&str; 2] = ["models/fa_IR-mana-medium.onnx", "fa_IR-mana-medium.onnx"];
+    let piper = PIPER_REL.iter().map(|p| dir.join(p)).find(|p| p.is_file())?;
+    let model = MODEL_REL
         .iter()
         .map(|p| piper.parent().map(|d| d.join(p)))
-        .chain(model_rel.iter().map(|p| Some(root.join(p))))
+        .chain(MODEL_REL.iter().map(|p| Some(dir.join(p))))
         .flatten()
         .find(|p| p.is_file())?;
     Some((piper, model))
@@ -62,16 +69,8 @@ fn resolve_paths(app: &tauri::AppHandle) -> EnginePaths {
         return EnginePaths { piper, model };
     }
     if let Ok(res) = app.path().resource_dir() {
-        for root in [res.clone(), res.parent().unwrap_or(&res).to_path_buf()]
-            .into_iter()
-            .chain(std::fs::read_dir(&res).ok().map(|_| res.clone()).into_iter())
-        {
-            if let Some(found) = find_in(&root) {
-                return EnginePaths {
-                    piper: found.0,
-                    model: found.1,
-                };
-            }
+        if let Some((piper, model)) = find_in(&res) {
+            return EnginePaths { piper, model };
         }
     }
     EnginePaths {
@@ -374,6 +373,31 @@ mod tests {
         std::fs::write(model_dir.join("fa_IR-mana-medium.onnx"), b"x").unwrap();
 
         let (piper, model) = find_in(&root).expect("engine must be found in bundle layout");
+        assert_eq!(piper, piper_dir.join("piper"));
+        assert_eq!(model, model_dir.join("fa_IR-mana-medium.onnx"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn find_in_matches_the_appimage_up_layout() {
+        // Real AppImage layout: <resource_dir>/_up_/tools/piper/piper
+        let root = std::env::temp_dir().join(format!("manatts-up-{}", std::process::id()));
+        let up = root.join("_up_");
+        let piper_dir = up.join("tools/piper");
+        let model_dir = up.join("models");
+        std::fs::create_dir_all(&piper_dir).unwrap();
+        std::fs::create_dir_all(&model_dir).unwrap();
+        std::fs::write(piper_dir.join("piper"), b"x").unwrap();
+        std::fs::write(model_dir.join("fa_IR-mana-medium.onnx"), b"x").unwrap();
+
+        // resource_dir() in an AppImage points next to the binary, i.e. at a
+        // sibling level like <mount>/usr/bin; simulate by searching from a
+        // directory that only contains an unrelated entry.
+        let probe = root.join("bin");
+        std::fs::create_dir_all(&probe).unwrap();
+        std::fs::write(probe.join("mana-tts-app"), b"x").unwrap();
+
+        let (piper, model) = find_in(&probe).expect("engine must be found via parent+child search");
         assert_eq!(piper, piper_dir.join("piper"));
         assert_eq!(model, model_dir.join("fa_IR-mana-medium.onnx"));
         std::fs::remove_dir_all(&root).ok();
