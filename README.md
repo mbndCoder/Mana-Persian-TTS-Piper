@@ -33,26 +33,28 @@
 
 | سیستم‌عامل | فایل | پیش‌نیاز |
 |---|---|---|
-| لینوکس | `ManaTTS_*.AppImage` | ❌ هیچ‌چیز |
-| لینوکس | `ManaTTS_*.deb` | ❌ هیچ‌چیز |
-| ویندوز | `*.exe` | 🐍 پایتون + یک دستور (پایین) |
-| مک | `*.dmg` | 🐍 پایتون + یک دستور (پایین) |
+| لینوکس | `ManaTTS_*.AppImage` یا `.deb` | ❌ هیچ‌چیز |
+| ویندوز | `*.exe` | ❌ هیچ‌چیز |
+| مک | `*.dmg` | ❌ هیچ‌چیز |
 
-### پیش‌نیاز ویندوز و مک
+موتور صوتی به‌صورت یک باینری مستقل داخل خود بسته قرار دارد؛ **نه پایتون
+لازم است، نه هیچ بسته سیستمی.** فقط دانلود کن، اجرا کن، تمام.
 
-موتور صوتی روی این دو سیستم از پکیج رسمی پایتونی استفاده می‌کند:
+### اجرا با یک دستور
 
+**لینوکس:**
 ```bash
-pip install piper-tts
+chmod +x ManaTTS_*.AppImage && ./ManaTTS_*.AppImage
 ```
 
-بدون این دستور، اپ باز می‌شود و کار می‌کند، ولی هنگام تولید صدا خطا می‌دهد.
+**ویندوز (PowerShell):**
+```powershell
+Invoke-WebRequest <لینک-فایل> -OutFile ManaTTS.exe; .\ManaTTS.exe
+```
 
-### لینوکس بدون هیچ نصبی
-
+**مک:**
 ```bash
-chmod +x ManaTTS_*.AppImage
-./ManaTTS_*.AppImage
+hdiutil attach ManaTTS.dmg && cp -R ManaTTS.app /Applications/ && open /Applications/ManaTTS.app
 ```
 
 ---
@@ -112,7 +114,6 @@ mpv ~/Documents/ManaTTS/speech.wav
 | `MANA_API_TOKEN` | فعال‌سازی احراز هویت با هدر `Authorization: Bearer ...` |
 | `MANA_PIPER_BIN` | مسیر سفارشی باینری موتور |
 | `MANA_MODEL` | مسیر سفارشی مدل |
-| `MANA_PYTHON` | مسیر سفارشی مفسر پایتون |
 
 احراز هویت **به‌صورت پیش‌فرض خاموش است** تا ابزارهای محلی راحت وصل شوند.
 
@@ -133,21 +134,11 @@ curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR
   -o models/fa_IR-mana-medium.onnx.json
 ```
 
-### ۲. موتور صوتی
-
-**لینوکس** — باینری نیتیو (بدون نیاز به پایتون):
+### ۲. موتور صوتی (باینری مستقل)
 
 ```bash
-mkdir -p tools
-curl -L https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_amd64.tar.gz \
-  -o tools/piper_amd64.tar.gz
-tar -xzf tools/piper_amd64.tar.gz -C tools/
-```
-
-**ویندوز / مک:**
-
-```bash
-pip install piper-tts
+pip install pyinstaller piper-tts
+./scripts/build_engine.sh    # خروجی: tools/piper/piper (+ piper.exe روی ویندوز)
 ```
 
 ### ۳. اجرا
@@ -192,14 +183,17 @@ mana-tts/
 
 ### معماری
 
-هسته اپ از سیستم‌عامل مستقل است. موتور صوتی پشت یک قرارداد واحد
-(`-m مدل -f خروجی --length-scale x` + متن روی ورودی استاندارد) پنهان شده و
-دو پیاده‌سازی دارد:
+هسته اپ از سیستم‌عامل مستقل است. موتور صوتی یک **باینری مستقل واحد** است که با
+`scripts/build_engine.sh` (از طریق PyInstaller) برای هر سه سیستم‌عامل ساخته
+می‌شود و یک قرارداد ثابت دارد:
 
-1. **باینری نیتیو piper** — لینوکس، بدون هیچ پیش‌نیازی.
-2. **`python -m piper`** — ویندوز و مک، از پکیج `piper-tts`.
+```
+piper -m <مدل> -f <خروجی.wav> --length-scale <x> --espeak_data <مسیر>
+متن روی ورودی استاندارد ← WAV روی فایل خروجی
+```
 
-به این ترتیب شکست یک پلتفرم روی بقیه اثر نمی‌گذارد.
+نتیجه: کاربر روی هر سیستمی فقط فایل را دانلود و اجرا می‌کند — بدون پایتون،
+بدون نصب بسته سیستمی، بدون اینترنت.
 
 ---
 

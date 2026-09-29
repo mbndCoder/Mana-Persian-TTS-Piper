@@ -7,22 +7,73 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  engine:
+    # One self-contained `piper` executable per platform, so the shipped app
+    # needs no Python and no system packages anywhere.
+    name: engine-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: appimage,deb
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            bundles: nsis
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            bundles: dmg
+          - { name: linux,   os: ubuntu-22.04 }
+          - { name: windows, os: windows-latest }
+          - { name: macos,   os: macos-latest }
+    steps:
+      - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller piper-tts
+          # bash on Windows runners
+          git config --global core.autocrlf false
+          bash ./scripts/build_engine.sh
+          ls -l tools/piper
+
+      - name: Smoke-test the engine (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx -o m.onnx
+          echo 'سلام' | ./tools/piper/piper -m m.onnx -f out.wav
+          test -s out.wav && echo "engine produced $(stat -c%s out.wav) bytes"
+
+      - name: Smoke-test the engine (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx -o m.onnx
+          echo 'سلام' | ./tools/piper/piper.exe -m m.onnx -f out.wav
+          test -s out.wav && echo "engine produced bytes"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-${{ matrix.name }}
+          path: tools/piper/
+          if-no-files-found: error
+
+  app:
+    needs: engine
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04,  target: x86_64-unknown-linux-gnu, bundles: appimage,deb, name: linux }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc,    bundles: nsis,         name: windows }
+          - { os: macos-latest,   target: x86_64-apple-darwin,      bundles: dmg,          name: macos }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -48,58 +99,41 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The 61MB model is git-ignored; every platform fetches it here.
       - name: Download Mana model
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p models
-          curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx \
+          curl -fL --retry 3 https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx \
             -o models/fa_IR-mana-medium.onnx
-          curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx.json \
+          curl -fL --retry 3 https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx.json \
             -o models/fa_IR-mana-medium.onnx.json
-          python3 -c "import json; c=json.load(open('models/fa_IR-mana-medium.onnx.json')); assert c['audio']['sample_rate']==22050; print('model config ok')"
+          # explicit utf-8: the Windows runner's default codec is cp1252 and
+          # reading the Persian config with it raises UnicodeDecodeError
+          python -c "import json,io; c=json.load(io.open('models/fa_IR-mana-medium.onnx.json',encoding='utf-8')); assert c['audio']['sample_rate']==22050; print('model config ok')"
 
-      # Native engine is bundled on Linux only. Windows/macOS use the
-      # `python -m piper` fallback (pip installs piper-tts at runtime;
-      # see README "Prerequisites").
-      - name: Download native piper engine (Linux only)
-        if: runner.os == 'Linux'
+      - name: Fetch the engine built for this platform
+        uses: actions/download-artifact@v4
+        with:
+          name: engine-${{ matrix.name }}
+          path: tools/piper
+
+      - name: Bundle the engine as a resource
         shell: bash
         run: |
-          mkdir -p tools
-          curl -L https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_amd64.tar.gz \
-            -o tools/piper_amd64.tar.gz
-          tar -xzf tools/piper_amd64.tar.gz -C tools/
-          ./tools/piper/piper --help | head -3
-          # Bundle it as a resource by extending the tauri config for this
-          # platform only (the config is not portable across OSes).
-          python3 - <<'PY'
+          set -euo pipefail
+          python - <<'PY'
           import json, pathlib
           p = pathlib.Path("src-tauri/tauri.conf.json")
-          cfg = json.loads(p.read_text())
+          cfg = json.loads(p.read_text(encoding="utf-8"))
           cfg["bundle"]["resources"] += [
               "../tools/piper/piper",
-              "../tools/piper/*.so*",
+              "../tools/piper/piper.exe",
               "../tools/piper/espeak-ng-data",
           ]
-          p.write_text(json.dumps(cfg, indent=2) + "\n")
-          print("resources:", cfg["bundle"]["resources"])
+          p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          print("resources:", len(cfg["bundle"]["resources"]))
           PY
-
-      - name: Verify engine fallback is installed (Windows/macOS)
-        if: runner.os != 'Linux'
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install piper-tts
-          python -c "import piper; print('piper-tts ready')"
-          echo 'سلام' | python -m piper --help > /dev/null
-
-      - name: Build frontend assets check
-        shell: bash
-        run: |
-          test -f src/index.html
-          test -f src-tauri/tauri.conf.json
 
       - name: Build app
         uses: tauri-apps/tauri-action@v0
@@ -109,16 +143,14 @@ jobs:
           tagName: v${{ github.run_number }}
           releaseName: "ManaTTS v${{ github.run_number }}"
           releaseBody: |
-            Persian offline TTS (Mana Piper voice).
-            Windows/macOS need: pip install piper-tts
+            Persian offline TTS (Mana Piper voice). No Python required.
           releaseDraft: true
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: manatts-${{ matrix.target }}
-          # The workspace target dir is at the repo root, not under src-tauri.
+          name: app-${{ matrix.target }}
           path: |
             target/${{ matrix.target }}/release/bundle/
             target/release/bundle/

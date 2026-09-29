@@ -26,17 +26,31 @@ fn synthesize_produces_valid_persian_wav() {
     std::fs::remove_file(&out).ok();
 }
 
+/// The engine is now a self-contained binary for every platform, so the app
+/// must not depend on Python at all. This asserts the packaged engine is
+/// present and speaks, which is what ships to users.
 #[test]
-fn python_fallback_synthesizes_when_native_binary_is_absent() {
-    let out = unique_wav("fallback");
+fn bundled_engine_synthesizes_without_python() {
+    let engine = if cfg!(windows) {
+        std::path::Path::new("tools/piper/piper.exe")
+    } else {
+        std::path::Path::new("tools/piper/piper")
+    };
+    assert!(
+        engine.is_file(),
+        "bundled engine missing at {} — build it with scripts/build_engine.sh",
+        engine.display()
+    );
+
+    let out = unique_wav("bundled");
     mana_tts::tts::synthesize_with(
-        std::path::Path::new("tools/piper/does-not-exist"),
+        engine,
         std::path::Path::new("models/fa_IR-mana-medium.onnx"),
-        "سلام دنیا، تست مسیر جایگزین پایتون.",
+        "سلام دنیا، موتور مستقل بدون پایتون کار می‌کند.",
         1.0,
         &out,
     )
-    .expect("python fallback must synthesize");
+    .expect("bundled engine must synthesize");
 
     let reader = hound::WavReader::open(&out).expect("output must be a valid wav");
     let spec = reader.spec();
