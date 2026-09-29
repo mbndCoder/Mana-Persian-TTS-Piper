@@ -245,19 +245,27 @@ fn default_dir(app: tauri::AppHandle) -> String {
 
 struct ApiServer(std::sync::Mutex<Option<api::RunningServer>>);
 
-fn api_snapshot(server: &ApiServer) -> api::ApiInfo {
+fn api_out_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .document_dir()
+        .map(|d| d.join("ManaTTS"))
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn api_snapshot(app: &tauri::AppHandle, server: &ApiServer) -> api::ApiInfo {
+    let dir = api_out_dir(app);
     server
         .0
         .lock()
         .ok()
         .and_then(|g| g.as_ref().map(|s| s.port))
-        .map(api::ApiInfo::for_port)
+        .map(|p| api::ApiInfo::for_port(p, &dir))
         .unwrap_or_else(api::ApiInfo::stopped)
 }
 
 #[tauri::command]
-fn api_status(server: State<'_, ApiServer>) -> api::ApiInfo {
-    api_snapshot(&server)
+fn api_status(app: tauri::AppHandle, server: State<'_, ApiServer>) -> api::ApiInfo {
+    api_snapshot(&app, &server)
 }
 
 #[tauri::command]
@@ -266,15 +274,17 @@ async fn api_start(
     server: State<'_, ApiServer>,
 ) -> Result<api::ApiInfo, String> {
     if server.0.lock().map(|g| g.is_some()).unwrap_or(true) {
-        return Ok(api_snapshot(&server));
+        return Ok(api_snapshot(&app, &server));
     }
     let paths = app.state::<EnginePaths>();
     let running = api::start(paths.piper.clone(), paths.model.clone()).await?;
-    let info = api::ApiInfo::for_port(running.port);
+    let dir = api_out_dir(&app);
+    let info = api::ApiInfo::for_port(running.port, &dir);
     if let Ok(mut g) = server.0.lock() {
         *g = Some(running);
     }
     let _ = app.emit("api-port", info.port);
+    let _ = std::fs::create_dir_all(&dir);
     Ok(info)
 }
 

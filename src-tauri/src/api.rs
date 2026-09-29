@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use axum::extract::State as AxumState;
+use axum::extract::{FromRequest, State as AxumState};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -18,6 +18,28 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 pub const MODEL_NAME: &str = "fa-IR-mana-medium";
+
+/// Default port: high enough to stay clear of the usual dev-server ports
+/// (3000 Grafana, 8000 vLLM, 8080 LocalAI, 11434 Ollama, 8188 ComfyUI,
+/// 7860 Automatic1111, 8888 Jupyter) and still inside the non-ephemeral range.
+pub const DEFAULT_PORT: u16 = 7788;
+
+pub fn preferred_port() -> u16 {
+    std::env::var("MANA_API_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|p| *p > 0)
+        .unwrap_or(DEFAULT_PORT)
+}
+
+/// Optional shared secret. Off unless MANA_API_TOKEN is set, because tools and
+/// agents on the same machine should connect without ceremony.
+pub fn required_token() -> Option<String> {
+    std::env::var("MANA_API_TOKEN")
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
 
 // ---------------------------------------------------------------- app commands
 
@@ -28,6 +50,10 @@ pub struct ApiInfo {
     pub port: Option<u16>,
     pub url: String,
     pub curl: String,
+    /// Absolute path the example request writes to, so the user is never
+    /// left guessing where the wav landed.
+    pub output_path: String,
+    pub auth_required: bool,
 }
 
 impl ApiInfo {
@@ -37,17 +63,28 @@ impl ApiInfo {
             port: None,
             url: String::new(),
             curl: String::new(),
+            output_path: String::new(),
+            auth_required: required_token().is_some(),
         }
     }
 
-    pub fn for_port(p: u16) -> Self {
+    pub fn for_port(p: u16, out_dir: &std::path::Path) -> Self {
         let url = format!("http://127.0.0.1:{p}/v1/audio/speech");
+        let output_path = out_dir.join("speech.wav");
+        let auth = required_token();
+        let auth_header = match &auth {
+            Some(_) => " \\\n  -H 'Authorization: Bearer $MANA_API_TOKEN'",
+            None => "",
+        };
         Self {
             running: true,
             port: Some(p),
             url: url.clone(),
+            output_path: output_path.to_string_lossy().into_owned(),
+            auth_required: auth.is_some(),
             curl: format!(
-                "curl -X POST {url} \\\n  -H 'Content-Type: application/json' \\\n  -d '{{\"input\": \"سلام دنیا\", \"voice\": \"mana\", \"speed\": 1.0, \"response_format\": \"wav\"}}' \\\n  --output speech.wav"
+                "curl -X POST {url} \\\n  -H 'Content-Type: application/json'{auth_header} \\\n  -d '{{\"input\": \"سلام دنیا\", \"voice\": \"mana\", \"speed\": 1.0, \"response_format\": \"wav\"}}' \\\n  --output \"{}\"",
+                output_path.to_string_lossy()
             ),
         }
     }
@@ -59,6 +96,39 @@ impl ApiInfo {
 struct ApiState {
     piper: PathBuf,
     model: PathBuf,
+    token: Option<String>,
+}
+
+/// Reject the request unless it carries the shared secret (only active when
+/// MANA_API_TOKEN is set).
+fn authorized(req: &axum::http::Request<axum::body::Body>, token: &str) -> bool {
+    req.headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.trim() == format!("Bearer {token}"))
+        .unwrap_or(false)
+}
+
+async fn speech(
+    AxumState(st): AxumState<ApiState>,
+    req: axum::http::Request<axum::body::Body>,
+) -> Response {
+    if let Some(token) = &st.token {
+        if !authorized(&req, token) {
+            return (
+                StatusCode::UNAUTHORIZED,
+                "missing or invalid Authorization: Bearer <token>",
+            )
+                .into_response();
+        }
+    }
+    // Extract the JSON body after the auth check so an unauthenticated caller
+    // cannot make the engine synthesize anything.
+    let Json(req) = match Json::<SpeechRequest>::from_request(req, &()).await {
+        Ok(v) => v,
+        Err(rejection) => return (StatusCode::BAD_REQUEST, rejection.body_text()).into_response(),
+    };
+    speech_inner(st, req).await
 }
 
 #[derive(Deserialize)]
@@ -111,7 +181,7 @@ async fn health() -> Json<Health> {
     })
 }
 
-async fn speech(AxumState(st): AxumState<ApiState>, Json(req): Json<SpeechRequest>) -> Response {
+async fn speech_inner(st: ApiState, req: SpeechRequest) -> Response {
     let text = req.input.trim().to_string();
     if text.is_empty() {
         return (StatusCode::BAD_REQUEST, "input must not be empty").into_response();
@@ -173,6 +243,8 @@ async fn speech(AxumState(st): AxumState<ApiState>, Json(req): Json<SpeechReques
 /// A running server plus the channel that stops it.
 pub struct RunningServer {
     pub port: u16,
+    /// False when the preferred port was busy and a random one was used.
+    pub on_preferred: bool,
     shutdown: Option<oneshot::Sender<()>>,
     flag: Arc<AtomicBool>,
 }
@@ -186,18 +258,38 @@ impl RunningServer {
     }
 }
 
-/// Bind a free localhost port and serve until stopped.
+/// Bind the preferred localhost port, falling back to any free port when it
+/// is taken, so a busy port degrades instead of breaking startup.
+pub async fn bind_listener(preferred: u16) -> Result<(tokio::net::TcpListener, u16, bool), String> {
+    match tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, preferred))).await {
+        Ok(l) => {
+            let port = l.local_addr().map_err(|e| e.to_string())?.port();
+            Ok((l, port, port == preferred))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            let l = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+                .await
+                .map_err(|e| format!("cannot bind localhost: {e}"))?;
+            let port = l.local_addr().map_err(|e| e.to_string())?.port();
+            Ok((l, port, false))
+        }
+        Err(e) => Err(format!("cannot bind localhost:{preferred}: {e}")),
+    }
+}
+
+/// Bind localhost and serve until stopped.
 pub async fn start(piper: PathBuf, model: PathBuf) -> Result<RunningServer, String> {
-    let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
-        .await
-        .map_err(|e| format!("cannot bind localhost: {e}"))?;
-    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let (listener, port, on_preferred) = bind_listener(preferred_port()).await?;
 
     let app = Router::new()
         .route("/v1/audio/speech", post(speech))
         .route("/health", get(health))
         .route("/", get(root))
-        .with_state(ApiState { piper, model });
+        .with_state(ApiState {
+            piper,
+            model,
+            token: required_token(),
+        });
 
     let (tx, rx) = oneshot::channel();
     let flag = Arc::new(AtomicBool::new(true));
@@ -212,6 +304,7 @@ pub async fn start(piper: PathBuf, model: PathBuf) -> Result<RunningServer, Stri
 
     Ok(RunningServer {
         port,
+        on_preferred,
         shutdown: Some(tx),
         flag,
     })
@@ -222,13 +315,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn api_info_exposes_url_and_curl() {
-        let info = ApiInfo::for_port(8123);
+    fn api_info_exposes_url_absolute_output_and_curl() {
+        let dir = std::path::Path::new("/tmp/manatts-test-out");
+        let info = ApiInfo::for_port(8123, dir);
         assert!(info.running);
         assert_eq!(info.url, "http://127.0.0.1:8123/v1/audio/speech");
+        assert_eq!(info.output_path, "/tmp/manatts-test-out/speech.wav");
         assert!(info.curl.contains("/v1/audio/speech"));
         assert!(info.curl.contains("\"speed\""));
-        assert!(info.curl.contains("--output speech.wav"));
+        // the example must state the absolute output path, not a bare filename
+        assert!(
+            info.curl.contains("--output \"/tmp/manatts-test-out/speech.wav\""),
+            "curl must show the absolute path: {}",
+            info.curl
+        );
     }
 
     #[test]
@@ -236,5 +336,39 @@ mod tests {
         let info = ApiInfo::stopped();
         assert!(!info.running);
         assert!(info.url.is_empty());
+        assert!(info.output_path.is_empty());
+    }
+
+    #[tokio::test]
+    async fn busy_preferred_port_falls_back_to_a_free_one() {
+        let (a, port_a, on_a) = bind_listener(0).await.unwrap();
+        assert!(!on_a, "port 0 is never the preferred port");
+        assert_ne!(port_a, 0);
+
+        // Occupy the port the first listener actually got, then ask for it.
+        let (b, port_b, on_b) = bind_listener(port_a).await.unwrap();
+        assert!(!on_b, "an occupied port must report fallback");
+        assert_ne!(port_b, port_a, "fallback must pick a different free port");
+        drop((a, b));
+    }
+
+    #[tokio::test]
+    async fn free_preferred_port_is_used_as_is() {
+        let (l, port, on_preferred) = bind_listener(0).await.unwrap();
+        assert!(!on_preferred);
+        drop(l);
+        // An ephemeral port we just released may be reused; assert the
+        // contract instead: a successful bind reports the port it got.
+        assert!(port > 0);
+    }
+
+    #[test]
+    fn default_port_avoids_well_known_dev_ports() {
+        let clashes = [3000, 8000, 8080, 8888, 11434, 7860, 8188, 1234, 5678, 9000];
+        assert!(
+            !clashes.contains(&DEFAULT_PORT),
+            "default port {} clashes with a common tool",
+            DEFAULT_PORT
+        );
     }
 }

@@ -186,6 +186,10 @@
     $('apiToggle').textContent = apiRunning ? 'خاموش کردن' : 'روشن کردن';
     $('apiUrl').value = apiRunning ? info.url : '';
     $('apiCurl').textContent = apiRunning ? info.curl : '—';
+    $('apiOut').textContent = apiRunning ? 'فایل خروجی این دستور: ' + info.outputPath : '';
+    $('apiAuth').textContent = apiRunning && info.authRequired
+      ? 'این سرویس توکن می‌خواهد (متغیر محیطی MANA_API_TOKEN).'
+      : '';
   }
 
   function refreshApi() {
