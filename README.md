@@ -1,90 +1,232 @@
-# ManaTTS — آفلاین Persian Text-to-Speech
+# مانـا — تبدیل متن فارسی به گفتار، آفلاین
 
-دسکتاپ‌اپ آفلاین تبدیل متن فارسی به گفتار با صدای مانا (`MahtaFetrat/Mana-Persian-Piper`)،
-رابط فارسی راست‌چین با تم دارک/لایت، و API محلی سازگار با OpenAI برای ابزارها و ایجنت‌ها.
+<div dir="rtl">
 
-## دانلود آماده (پیشنهادی)
+اپ دسکتاپ **کاملاً آفلاین** برای تبدیل متن فارسی به گفتار با صدای مانا، به‌همراه
+**API محلی سازگار با OpenAI** برای استفاده ایجنت‌ها و ابزارها.
 
-از تب **Releases** گیت‌هاب، فایل مخصوص سیستم‌عاملت را بگیر:
+رابط کاربری فارسی و راست‌چین با تم دارک/لایت — بدون اینترنت، بدون حساب کاربری، بدون
+ارسال صدای شما به هیچ‌جا.
 
-| سیستم | فایل |
+</div>
+
+---
+
+## چه چیزی دارد
+
+| قابلیت | توضیح |
 |---|---|
-| لینوکس | `ManaTTS_*.AppImage` (اجرا مستقیم) یا `.deb` |
-| ویندوز | نصب‌کننده `.exe` |
-| مک | `.dmg` |
+| **تولید و پخش صدا** | متن فارسی → گفتار طبیعی، پخش داخل خود اپ |
+| **کنترل سرعت** | اسلایدر ۰٫۵× تا ۲٫۰× (در API تا ۰٫۲۵× تا ۴×) |
+| **نمایش موج صدا** | ویژوالایزر زنده همراه پیشرفت پخش |
+| **ذخیره خروجی** | انتخاب پوشه دلخواه یا پوشه پیش‌فرض، خروجی WAV |
+| **API محلی OpenAI** | `POST /v1/audio/speech` + `GET /health` روی `127.0.0.1` |
+| **پوشه نمونه جمله** | جمله‌های فارسی آماده برای تست سریع |
+| **تم دارک / لایت** | با ذخیره انتخاب کاربر |
+| **آفلاین کامل** | فونت وزیرمتن و موتور صوتی به‌صورت محلی باندل شده‌اند |
 
-## پیش‌نیازها
+---
 
-- **لینوکس:** هیچ‌چیز. موتور به‌صورت باینری همراه اپ است.
-- **ویندوز / مک:** پایتون ۳٫۱۰+ و یک دستور (موتور از پکیج رسمی استفاده می‌کند):
-  ```bash
-  pip install piper-tts
-  ```
-  بدون این پکیج، اپ باز می‌شود ولی تولید صدا خطا می‌دهد.
+## دانلود آماده
 
-## اجرای محلی (توسعه)
+از تب **Releases** همین ریپو، فایل سیستم‌عامل خود را بگیر:
+
+| سیستم‌عامل | فایل | پیش‌نیاز |
+|---|---|---|
+| لینوکس | `ManaTTS_*.AppImage` | ❌ هیچ‌چیز |
+| لینوکس | `ManaTTS_*.deb` | ❌ هیچ‌چیز |
+| ویندوز | `*.exe` | 🐍 پایتون + یک دستور (پایین) |
+| مک | `*.dmg` | 🐍 پایتون + یک دستور (پایین) |
+
+### پیش‌نیاز ویندوز و مک
+
+موتور صوتی روی این دو سیستم از پکیج رسمی پایتونی استفاده می‌کند:
 
 ```bash
-# 1. مدل (یک‌بار، ~61MB)
-mkdir -p models
-curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx -o models/fa_IR-mana-medium.onnx
-curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx.json -o models/fa_IR-mana-medium.onnx.json
-
-# 2. موتور نیتیو لینوکس (یک‌بار، ~25MB؛ روی ویندوز/مک لازم نیست)
-mkdir -p tools
-curl -L https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_amd64.tar.gz -o tools/piper_amd64.tar.gz
-tar -xzf tools/piper_amd64.tar.gz -C tools/
-
-# 3. اجرا
-./scripts/dev.sh        # رابط گرافیکی
-cargo run -- "سلام دنیا" # خط فرمان (پخش مستقیم)
+pip install piper-tts
 ```
 
-## API محلی برای ابزارها و ایجنت‌ها
+بدون این دستور، اپ باز می‌شود و کار می‌کند، ولی هنگام تولید صدا خطا می‌دهد.
 
-با باز شدن اپ، سرویس روی `http://127.0.0.1:7788` بالا می‌آید
-(فقط همین دستگاه؛ اگر پورت اشغال بود خودکار عوض می‌شود و آدرس واقعی در UI هست).
+### لینوکس بدون هیچ نصبی
+
+```bash
+chmod +x ManaTTS_*.AppImage
+./ManaTTS_*.AppImage
+```
+
+---
+
+## API محلی — برای ایجنت‌ها و ابزارها
+
+با باز شدن اپ، سرویس **خودکار** روی `http://127.0.0.1:7788` بالا می‌آید.
+فقط روی همین دستگاه گوش می‌دهد و **هیچ اتصالی به اینترنت ندارد**.
+(اگر پورت ۷۷۸۸ اشغال باشد، خودکار یک پورت آزاد دیگر انتخاب می‌کند و
+آدرس واقعی در پنل «اتصال API» داخل اپ نمایش داده می‌شود.)
+
+### نمونه درخواست
 
 ```bash
 curl -X POST http://127.0.0.1:7788/v1/audio/speech \
   -H 'Content-Type: application/json' \
   -d '{"input": "سلام دنیا", "voice": "mana", "speed": 1.0, "response_format": "wav"}' \
   --output ~/Documents/ManaTTS/speech.wav
+
 mpv ~/Documents/ManaTTS/speech.wav
 ```
 
-- `speed`: ‏۰٫۲۵ تا ۴٫۰ (۱٫۰ = عادی)
-- `GET /health` وضعیت سرویس را می‌دهد؛ `GET /` نمونه درخواست را.
-- احراز هویت لازم نیست. اگر خواستی: `MANA_API_TOKEN=...` را ست کن و هدر
-  `Authorization: Bearer ...` بفرست.
-- اگر خواستی پورت دیگری باشد: `MANA_API_PORT=8080`.
+> توجه: `curl` صدا پخش نمی‌کند، فقط فایل WAV می‌نویسد. برای شنیدن، دستور
+> پخش‌کننده را جدا اجرا کنید (مثل `mpv` بالا).
 
-## تست
+### پارامترها
+
+| پارامتر | نوع | توضیح |
+|---|---|---|
+| `input` | string | متن فارسی (اجباری، تا ۲۰٬۰۰۰ نویسه) |
+| `voice` | string | `"mana"` (پیش‌فرض) |
+| `speed` | number | **۰٫۲۵ تا ۴٫۰** — سرعت گفتار (پیش‌فرض ۱٫۰) |
+| `response_format` | string | فقط `"wav"` |
+
+### مسیرها
+
+| مسیر | توضیح |
+|---|---|
+| `POST /v1/audio/speech` | تولید صدا (OpenAI-compatible) |
+| `GET /health` | وضعیت سرویس و مدل |
+| `GET /` | نمونه درخواست به‌صورت JSON |
+
+### کدهای خطا
+
+| کد | معنی |
+|---|---|
+| `400` | `input` خالی یا JSON نامعتبر |
+| `413` | متن بیش از ۲۰٬۰۰۰ نویسه |
+| `501` | `response_format` پشتیبانی‌نشده (فقط `wav`) |
+| `500` | خطای موتور تبدیل متن به گفتار |
+
+### تنظیمات اختیاری (متغیر محیطی)
+
+| متغیر | کاربرد |
+|---|---|
+| `MANA_API_PORT` | تغییر پورت پیش‌فرض (پیش‌فرض `7788`) |
+| `MANA_API_TOKEN` | فعال‌سازی احراز هویت با هدر `Authorization: Bearer ...` |
+| `MANA_PIPER_BIN` | مسیر سفارشی باینری موتور |
+| `MANA_MODEL` | مسیر سفارشی مدل |
+| `MANA_PYTHON` | مسیر سفارشی مفسر پایتون |
+
+احراز هویت **به‌صورت پیش‌فرض خاموش است** تا ابزارهای محلی راحت وصل شوند.
+
+---
+
+## ساخت از سورس
+
+<details dir="rtl">
+<summary><b>نصب دستی (برای توسعه)</b></summary>
+
+### ۱. مدل (یک‌بار، حدود ۶۱ مگابایت)
 
 ```bash
-cargo test -p mana-tts      # موتور + پخش
-cargo test -p mana-tts-app  # مسیرها، موج صدا، منطق API
-python3 scripts/phase0_spike.py  # مرجع صوتی (نیاز به .venv با piper-tts)
+mkdir -p models
+curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx \
+  -o models/fa_IR-mana-medium.onnx
+curl -L https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx.json \
+  -o models/fa_IR-mana-medium.onnx.json
 ```
 
-## لایسنس‌ها
+### ۲. موتور صوتی
 
-| جزء | لایسنس | نکته تجاری |
-|---|---|---|
-| مدل مانا (وزن‌ها) | MIT | آزاد، بدون شرط |
-| دیتاست Mana-TTS | CC0-1.0 | آزاد، بدون شرط |
-| موتور piper + espeak-ng | **GPL-3.0** | استفاده تجاری آزاد است، ولی هنگام **توزیع** باید سورس موتور را هم بدهی — پوشه `licenses/` همین کار را می‌کند |
-| Tauri / axum / rodio / onnxruntime | MIT / Apache-2.0 | آزاد |
+**لینوکس** — باینری نیتیو (بدون نیاز به پایتون):
 
-## ساختار
-
+```bash
+mkdir -p tools
+curl -L https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_amd64.tar.gz \
+  -o tools/piper_amd64.tar.gz
+tar -xzf tools/piper_amd64.tar.gz -C tools/
 ```
+
+**ویندوز / مک:**
+
+```bash
+pip install piper-tts
+```
+
+### ۳. اجرا
+
+```bash
+./scripts/dev.sh            # رابط گرافیکی (Tauri)
+cargo run -- "سلام دنیا"     # خط فرمان، همراه پخش
+```
+
+</details>
+
+### تست‌ها
+
+```bash
+cargo test -p mana-tts      # موتور تبدیل + پخش
+cargo test -p mana-tts-app  # مسیریابی، موج صدا، منطق API
+```
+
+---
+
+## ساختار پروژه
+
+```text
 mana-tts/
-├── src/                 # فرانت‌اند آفلاین (HTML/CSS/JS، بدون باندلر)
-├── src-tauri/           # بک‌اند Tauri: کامندها + سرور API
-├── src/tts.rs src/audio.rs  # هسته: موتور + پخش
-├── models/              # مدل (در گیت نیست؛ CI دانلود می‌کند)
-├── tools/piper/         # موتور نیتیو لینوکس (در گیت نیست)
-├── scripts/             # dev.sh، phase0_spike.py
-└── .github/workflows/   # بیلد لینوکس/ویندوز/مک
+├── src/                      # فرانت‌اند آفلاین (بدون باندلر و بدون مرحله build)
+│   ├── index.html
+│   ├── style.css
+│   ├── app.js
+│   └── fonts/Vazirmatn-*.ttf
+├── src-tauri/                # بک‌اند Tauri (Rust)
+│   ├── src/main.rs           # کامندها + مسیریابی موتور
+│   ├── src/api.rs            # سرور HTTP سازگار با OpenAI
+│   └── tauri.conf.json
+├── src/tts.rs                # قرارداد موتور (باینری نیتیو / fallback پایتون)
+├── src/audio.rs              # پخش با rodio
+├── models/                   # مدل (در گیت نیست؛ CI دانلود می‌کند)
+├── tools/piper/              # موتور نیتیو لینوکس (در گیت نیست)
+├── scripts/                  # dev.sh، phase0_spike.py
+├── licenses/                 # متن GPL-3.0 و منابع سورس موتور
+└── .github/workflows/        # بیلد خودکار لینوکس / ویندوز / مک
 ```
+
+### معماری
+
+هسته اپ از سیستم‌عامل مستقل است. موتور صوتی پشت یک قرارداد واحد
+(`-m مدل -f خروجی --length-scale x` + متن روی ورودی استاندارد) پنهان شده و
+دو پیاده‌سازی دارد:
+
+1. **باینری نیتیو piper** — لینوکس، بدون هیچ پیش‌نیازی.
+2. **`python -m piper`** — ویندوز و مک، از پکیج `piper-tts`.
+
+به این ترتیب شکست یک پلتفرم روی بقیه اثر نمی‌گذارد.
+
+---
+
+## لایسنس
+
+| جزء | لایسنس | کاربرد تجاری |
+|---|---|---|
+| [مدل مانا](https://huggingface.co/MahtaFetrat/Mana-Persian-Piper) | MIT | ✅ آزاد |
+| [دیتاست Mana-TTS](https://huggingface.co/datasets/MahtaFetrat/Mana-TTS) | CC0-1.0 | ✅ آزاد |
+| موتور [piper](https://github.com/OHF-Voice/piper1-gpl) + [espeak-ng](https://github.com/espeak-ng/espeak-ng) | **GPL-3.0** | ⚠️ آزاد، با شرط توزیع سورس |
+| [onnxruntime](https://github.com/microsoft/onnxruntime) | MIT | ✅ آزاد |
+| [Tauri](https://github.com/tauri-apps/tauri) / [axum](https://github.com/tokio-rs/axum) / [rodio](https://github.com/RustAudio/rodio) | MIT / Apache-2.0 | ✅ آزاد |
+| فونت [Vazirmatn](https://github.com/rastikerdar/vazirmatn) | SIL OFL | ✅ آزاد |
+
+**خلاصه:** استفاده تجاری **مجاز است**. تنها شرط، هنگام توزیع اپ، ارائه سورس
+موتورهای GPL است که در پوشه [`licenses/`](licenses/) انجام شده است.
+
+---
+
+## منابع
+
+- **مدل اصلی (Hugging Face):** [MahtaFetrat/Mana-Persian-Piper](https://huggingface.co/MahtaFetrat/Mana-Persian-Piper) — [مدل کارت](https://huggingface.co/MahtaFetrat/Mana-Persian-Piper#model-files)
+- **دیتاست آموزشی:** [MahtaFetrat/Mana-TTS](https://huggingface.co/datasets/MahtaFetrat/Mana-TTS)
+- **مقاله مدل:** [Beyond Unified Models: A Service-Oriented Approach to Low-Latency, Context-Aware Phonemization for Real-Time TTS](https://arxiv.org/abs/2512.08006) (arXiv:2512.08006)
+- **موتور piper:** [OHF-Voice/piper1-gpl](https://github.com/OHF-Voice/piper1-gpl) — [مستندات خط فرمان](https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/CLI.md) — [مستندات API](https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/API_HTTP.md)
+- **باینری نیتیو لینوکس:** [rhasspy/piper v1.2.0](https://github.com/rhasspy/piper/releases/tag/v1.2.0)
+- **espeak-ng:** [espeak-ng/espeak-ng](https://github.com/espeak-ng/espeak-ng)
+- **onnxruntime:** [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime)
+- **چارچوب دسکتاپ:** [tauri-apps/tauri](https://github.com/tauri-apps/tauri)
+- **فونت وزیرمتن:** [rastikerdar/vazirmatn](https://github.com/rastikerdar/vazirmatn)
