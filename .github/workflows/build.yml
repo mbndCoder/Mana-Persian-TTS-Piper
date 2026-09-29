@@ -41,29 +41,39 @@ jobs:
           bash ./scripts/build_engine.sh
           ls -l tools/piper
 
-      - name: Smoke-test the engine (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Smoke-test the engine
         shell: bash
         run: |
           set -euo pipefail
-          curl -fL https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx -o m.onnx
-          echo 'سلام' | ./tools/piper/piper -m m.onnx -f out.wav
-          test -s out.wav && echo "engine produced $(stat -c%s out.wav) bytes"
-
-      - name: Smoke-test the engine (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fL https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx -o m.onnx
-          echo 'سلام' | ./tools/piper/piper.exe -m m.onnx -f out.wav
-          test -s out.wav && echo "engine produced bytes"
+          ENG=tools/piper/piper
+          [ "$RUNNER_OS" = "Windows" ] && ENG=tools/piper/piper.exe
+          # piper needs the sidecar config; without it the run fails with
+          # a bare FileNotFoundError and the real cause is easy to miss.
+          curl -fL --retry 3 https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx -o m.onnx
+          curl -fL --retry 3 https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx.json -o m.onnx.json
+          echo 'سلام دنیا، تست موتور مستقل.' | "$ENG" -m m.onnx -f out.wav
+          # prove it is real speech, not just a non-empty file
+          python ./scripts/verify_wav.py out.wav
 
       - uses: actions/upload-artifact@v4
         with:
           name: engine-${{ matrix.name }}
           path: tools/piper/
           if-no-files-found: error
+          retention-days: 90
+
+      # Publish the engine next to the app so future builds (and manual
+      # downloads) do not depend on rebuilding it with PyInstaller.
+      - uses: svenstaro/upload-release-action@v2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: engines
+          file: tools/piper/piper*
+          file_glob: true
+          overwrite: true
 
   app:
     needs: engine
