@@ -14,9 +14,16 @@ pub struct EnginePaths {
 
 /// Locate the engine inside a bundle root.
 ///
-/// Real layouts vary: `<root>/tools/piper/piper` (zip), or one extra level
-/// down like AppImage's `<root>/_up_/tools/piper/piper`. Search `root`, its
-/// parent chain (a few levels up), and one directory level down at each step.
+/// Real layouts vary:
+/// * `<root>/tools/piper/piper` — flat bundle
+/// * `<root>/_up_/tools/piper/piper` — `_up_` is how tauri-bundler encodes a
+///   `..` resource path, so this is what AppImage/deb actually ship
+/// * `<root>/<AppName>/_up_/tools/piper/piper` — one level deeper again,
+///   because `resource_dir()` resolves to `/usr/lib/<cargo package name>`
+///   while the bundler writes to `/usr/lib/<productName>`
+///
+/// So search `root`, its parent chain, and one level down at each step; and at
+/// every candidate also look inside a `_up_` subdirectory.
 fn find_in(root: &Path) -> Option<(PathBuf, PathBuf)> {
     let mut dirs = vec![root.to_path_buf()];
     let mut up = root;
@@ -29,18 +36,23 @@ fn find_in(root: &Path) -> Option<(PathBuf, PathBuf)> {
         }
     }
     // one level down at every candidate level (AppImage `_up_`, lib dirs, …)
-    let mut with_children = dirs.clone();
+    let mut candidates = dirs.clone();
     for d in &dirs {
         if let Ok(entries) = std::fs::read_dir(d) {
             for e in entries.flatten() {
                 let p = e.path();
                 if p.is_dir() {
-                    with_children.push(p);
+                    candidates.push(p);
                 }
             }
         }
     }
-    with_children.iter().find_map(|d| find_shallow(d))
+    // …and the `_up_` encoding of a `..` resource path at every candidate,
+    // which is one level too deep for the plain child search above.
+    let ups: Vec<PathBuf> = candidates.iter().map(|d| d.join("_up_")).collect();
+    candidates.extend(ups);
+
+    candidates.iter().find_map(|d| find_shallow(d))
 }
 
 /// Look for the engine directly under `dir` (no recursion).
@@ -370,12 +382,19 @@ mod tests {
         std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id()))
     }
 
+    /// Take the find_in lock without caring whether an earlier test panicked.
+    /// A poisoned lock made every other test report `PoisonError` instead of
+    /// its own real failure, hiding the actual bug.
+    fn lock_find_in() -> std::sync::MutexGuard<'static, ()> {
+        FIND_IN_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Regression: the real bundle layout is <root>/tools/piper/piper and
     /// <root>/models/*.onnx, but the resolver used to look for <root>/piper/piper,
     /// so the packaged app could never find its engine.
     #[test]
     fn find_in_matches_the_real_bundle_layout() {
-        let _guard = FIND_IN_LOCK.lock().unwrap();
+        let _guard = lock_find_in();
         let root = unique_root("manatts-layout");
         let piper_dir = root.join("tools/piper");
         let model_dir = root.join("models");
@@ -392,7 +411,7 @@ mod tests {
 
     #[test]
     fn find_in_matches_the_appimage_up_layout() {
-        let _guard = FIND_IN_LOCK.lock().unwrap();
+        let _guard = lock_find_in();
         // Real AppImage layout: <resource_dir>/_up_/tools/piper/piper
         let root = unique_root("manatts-up");
         let up = root.join("_up_");
@@ -416,9 +435,53 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// Regression: this is the layout the published .deb and AppImage
+    /// actually have.
+    ///
+    /// `tauri-utils::resource_dir` resolves the Linux resource directory as
+    /// `<exe_dir>/../lib/<cargo package name>` = `/usr/lib/mana-tts-app`, and
+    /// falls back to the literal `/usr/lib/<package name>` off AppImage. The
+    /// bundler, however, writes the files to `/usr/lib/<productName>` — so the
+    /// path Tauri hands back does not exist. The files live one level deeper:
+    /// `/usr/lib/ManaTTS/_up_/{tools,models}`.
+    ///
+    /// The old resolver only descended one level from the resource dir, so it
+    /// stopped at `/usr/lib/ManaTTS` and never saw the `_up_` component.
+    #[test]
+    fn find_in_finds_the_packaged_deb_layout() {
+        let _guard = lock_find_in();
+        let root = unique_root("manatts-deb");
+        // Resources exactly where tauri-bundler puts them.
+        let app_dir = root.join("usr/lib/ManaTTS/_up_");
+        let piper_dir = app_dir.join("tools/piper");
+        std::fs::create_dir_all(&piper_dir).unwrap();
+        std::fs::create_dir_all(app_dir.join("models")).unwrap();
+        std::fs::write(piper_dir.join("piper"), b"x").unwrap();
+        std::fs::write(
+            app_dir.join("models/fa_IR-mana-medium.onnx"),
+            b"x",
+        )
+        .unwrap();
+        // The executable dir that resource_dir() actually starts from.
+        std::fs::create_dir_all(root.join("usr/bin")).unwrap();
+
+        // Tauri returns /usr/lib/<package name>, which does not exist.
+        let probe = root.join("usr/lib/mana-tts-app");
+        assert!(
+            !probe.exists(),
+            "probe models Tauri's non-existent resource dir"
+        );
+
+        let (piper, model) =
+            find_in(&probe).expect("engine must be found in the packaged deb layout");
+        assert_eq!(piper, piper_dir.join("piper"));
+        assert_eq!(model, app_dir.join("models/fa_IR-mana-medium.onnx"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn find_in_also_accepts_a_flat_layout() {
-        let _guard = FIND_IN_LOCK.lock().unwrap();
+        let _guard = lock_find_in();
         let root = unique_root("manatts-flat");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("piper"), b"x").unwrap();
@@ -429,7 +492,7 @@ mod tests {
 
     #[test]
     fn find_in_returns_none_when_engine_is_absent() {
-        let _guard = FIND_IN_LOCK.lock().unwrap();
+        let _guard = lock_find_in();
         let root = unique_root("manatts-empty");
         std::fs::create_dir_all(&root).unwrap();
         assert!(find_in(&root).is_none());
