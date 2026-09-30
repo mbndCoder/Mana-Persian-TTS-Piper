@@ -1,10 +1,17 @@
-name: Build ManaTTS
+name: Desktop App (Linux / Windows / macOS)
 
 on:
   push:
     branches: [main, master]
     tags: ["v*"]
+    paths-ignore:
+      - "android/**"
+      - "scripts/import_android_app.py"
+      - "scripts/rebrand_android.py"
+      - "scripts/android_model.py"
   pull_request:
+    paths-ignore:
+      - "android/**"
   workflow_dispatch:
 
 permissions:
