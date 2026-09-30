@@ -21,10 +21,13 @@
 
 | ریلیز | سیستم‌عامل | فایل |
 |---|---|---|
-| **ManaTTS Desktop (Linux)** | لینوکس | `AppImage` و `.deb` |
-| **ManaTTS Desktop (Windows)** | ویندوز | `x64-setup.exe` |
-| **ManaTTS Desktop (macOS)** | مک | `x64.dmg` |
-| **ManaTTS TTS Engine (Android)** | اندروید | `ManaTTS-tts-engine.apk` |
+| **[ManaTTS Desktop (linux)](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/desktop-linux)** | لینوکس | `AppImage` و `.deb` |
+| **[ManaTTS Desktop (windows)](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/desktop-windows)** | ویندوز | `x64-setup.exe` |
+| **[ManaTTS Desktop (macos)](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/desktop-macos)** | مک | `x64.dmg` |
+| **[ManaTTS TTS Engine (Android)](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/android-latest)** | اندروید | `ManaTTS-tts-engine.apk` |
+
+> بعد از هر بیلد موفق، همین ریلیزها به‌روز می‌شوند — همیشه تازه‌ترین نسخه را
+> از همین چهار لینک بگیر.
 
 </div>
 
