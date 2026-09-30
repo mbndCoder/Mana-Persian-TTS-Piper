@@ -119,24 +119,39 @@ jobs:
           PY
           cargo test --workspace
 
-      # Build only. The single `release` job below publishes the downloads:
-      # three parallel jobs each creating a release burst the GITHUB_TOKEN
-      # installation rate limit.
-      - name: Build app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseDraft: false
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      # Official Tauri CLI. Deliberately NOT tauri-apps/tauri-action: that
+      # action creates a GitHub release from every matrix job, which both
+      # bursts the GITHUB_TOKEN installation rate limit and leaves junk
+      # releases behind. Building here and publishing once in the `release`
+      # job keeps a single, correctly named release.
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
 
-      - name: Upload artifacts
+      - name: Build app
+        run: tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      # Copy just the installers into one flat directory so each artifact is a
+      # flat file list. Uploading the whole bundle/ directory pulled in .sig
+      # files and an AppImage.tar.gz copy, and the nested layout made the
+      # download side fragile.
+      - name: Stage installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="target/${{ matrix.target }}/release/bundle"
+          test -d "$bundle" || { echo "no bundle dir at $bundle"; ls -R target/${{ matrix.target }}/release | head -40; exit 1; }
+          mkdir -p staged
+          find "$bundle" -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.exe' -o -name '*.dmg' \) \
+            -exec cp -v {} staged/ \;
+          echo "staged:"
+          ls -lh staged/
+          test -n "$(ls -A staged)"
+
+      - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ matrix.target }}
-          path: |
-            target/${{ matrix.target }}/release/bundle/
-            target/release/bundle/
+          name: installers-${{ matrix.os }}
+          path: staged/
           if-no-files-found: error
 
   # One release with all three OS downloads, created after the builds finish.
@@ -147,22 +162,29 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: app-*
+          pattern: installers-*
           path: dist
           merge-multiple: true
 
-      - name: Collect installers
+      # Verify each expected installer by name, and print what actually landed
+      # so a future mismatch is diagnosable from the log alone.
+      - name: Verify installers
         run: |
           set -euo pipefail
-          mkdir -p out
-          find dist -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.exe' -o -name '*.dmg' \) -exec cp {} out/ \;
-          ls -lh out/
-          test "$(ls out | wc -l)" -ge 4
+          echo "downloaded files:"
+          find dist -type f -printf '%10s  %p\n' | sort -k2
+          missing=0
+          for ext in AppImage deb exe dmg; do
+            n=$(find dist -type f -name "*.$ext" | wc -l)
+            echo "  .$ext -> $n"
+            [ "$n" -ge 1 ] || { echo "MISSING .$ext"; missing=1; }
+          done
+          test "$missing" -eq 0
 
       - uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: out/*
+          file: dist/*
           file_glob: true
           tag: desktop-latest
           release_name: "ManaTTS Desktop (Linux / Windows / macOS)"
