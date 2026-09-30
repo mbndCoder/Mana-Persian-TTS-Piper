@@ -119,26 +119,14 @@ jobs:
           PY
           cargo test --workspace
 
-      # One release per OS, named and tagged predictably, published straight
-      # away. (Drafting here and re-uploading elsewhere doubled the release
-      # API calls and burned the rate limit with three parallel jobs.)
-      - name: Build app and publish release
+      # Build only. The single `release` job below publishes the downloads:
+      # three parallel jobs each creating a release burst the GITHUB_TOKEN
+      # installation rate limit.
+      - name: Build app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: desktop-${{ matrix.name }}
-          releaseName: "ManaTTS Desktop (${{ matrix.name }})"
-          releaseBody: |
-            Persian offline text-to-speech with the Mana voice.
-
-            **${{ matrix.name }}** — always the newest build for this OS.
-
-            - Linux: no prerequisites at all.
-            - Windows / macOS: install Python 3.10+, then `pip install piper-tts`.
-
-            After installing, the app serves a local OpenAI-compatible API on
-            http://127.0.0.1:7788 — see the README.
           releaseDraft: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
@@ -150,3 +138,44 @@ jobs:
             target/${{ matrix.target }}/release/bundle/
             target/release/bundle/
           if-no-files-found: error
+
+  # One release with all three OS downloads, created after the builds finish.
+  # Cheaper on the API and better for users than one release per OS.
+  release:
+    needs: app
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: app-*
+          path: dist
+          merge-multiple: true
+
+      - name: Collect installers
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find dist -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.exe' -o -name '*.dmg' \) -exec cp {} out/ \;
+          ls -lh out/
+          test "$(ls out | wc -l)" -ge 4
+
+      - uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: out/*
+          file_glob: true
+          tag: desktop-latest
+          release_name: "ManaTTS Desktop (Linux / Windows / macOS)"
+          body: |
+            Persian offline text-to-speech with the Mana voice.
+
+            | OS | File | Prerequisites |
+            |---|---|---|
+            | Linux | `ManaTTS_*_amd64.AppImage` | none |
+            | Linux | `ManaTTS_*_amd64.deb` | none |
+            | Windows | `ManaTTS_*_x64-setup.exe` | Python 3.10+ then `pip install piper-tts` |
+            | macOS | `ManaTTS_*_x64.dmg` | Python 3.10+ then `pip install piper-tts` |
+
+            After launch the app serves a local OpenAI-compatible API on
+            http://127.0.0.1:7788 — see the README for details.
+          overwrite: true

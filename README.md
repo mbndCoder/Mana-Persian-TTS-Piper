@@ -19,12 +19,13 @@
 از تب **[Releases](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases)**،
 ریلیز مناسب سیستم خود را بگیر:
 
-| ریلیز | سیستم‌عامل | فایل |
-|---|---|---|
-| **[ManaTTS Desktop (linux)](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/desktop-linux)** | لینوکس | `AppImage` و `.deb` |
-| **[ManaTTS Desktop (windows)](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/desktop-windows)** | ویندوز | `x64-setup.exe` |
-| **[ManaTTS Desktop (macos)](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/desktop-macos)** | مک | `x64.dmg` |
-| **[ManaTTS TTS Engine (Android)](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/android-latest)** | اندروید | `ManaTTS-tts-engine.apk` |
+| ریلیز | سیستم‌عامل | فایل | پیش‌نیاز |
+|---|---|---|---|
+| **[ManaTTS Desktop](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/desktop-latest)** | لینوکس | `*_amd64.AppImage` | ❌ هیچ‌چیز |
+| ↑ همان ریلیز | لینوکس | `*_amd64.deb` | ❌ هیچ‌چیز |
+| ↑ همان ریلیز | ویندوز | `*_x64-setup.exe` | 🐍 `pip install piper-tts` |
+| ↑ همان ریلیز | مک | `*_x64.dmg` | 🐍 `pip install piper-tts` |
+| **[ManaTTS TTS Engine](https://github.com/mbndCoder/Mana-Persian-TTS-Piper/releases/tag/android-latest)** | اندروید | `ManaTTS-tts-engine.apk` | ❌ هیچ‌چیز |
 
 > بعد از هر بیلد موفق، همین ریلیزها به‌روز می‌شوند — همیشه تازه‌ترین نسخه را
 > از همین چهار لینک بگیر.
