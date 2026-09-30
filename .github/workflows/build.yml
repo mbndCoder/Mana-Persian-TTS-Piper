@@ -34,6 +34,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Fail fast on a matrix that has drifted. A bare comma inside a flow
+      # mapping silently truncates a value (see the note above), and that
+      # produced a release missing its .deb with no error anywhere.
+      - name: Validate matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys, yaml
+          cfg = yaml.safe_load(open(".github/workflows/build.yml", encoding="utf-8"))
+          inc = cfg["jobs"]["app"]["strategy"]["matrix"]["include"]
+          # The bundle list each runner must produce.
+          want = {
+              "ubuntu-22.04": "appimage,deb",
+              "windows-latest": "nsis",
+              "macos-latest": "dmg",
+          }
+          seen = {}
+          for e in inc:
+              os_ = e.get("os")
+              expected = want.get(os_)
+              if expected is None:
+                  sys.exit(f"unexpected runner in matrix: {os_!r}")
+              got = e.get("bundles")
+              if got != expected:
+                  sys.exit(f"{os_}: expected bundles={expected!r}, got {got!r}")
+              # A stray key means a bare comma was parsed as a separator.
+              stray = set(e) - {"os", "target", "bundles"}
+              if stray:
+                  sys.exit(f"{os_}: unexpected matrix keys {sorted(stray)} "
+                           f"(a bare comma in the flow mapping?)")
+              seen[os_] = got
+          missing = set(want) - set(seen)
+          if missing:
+              sys.exit(f"matrix lost runners: {sorted(missing)}")
+          print("matrix ok:", seen)
+          PY
+
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |
