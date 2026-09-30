@@ -159,45 +159,95 @@ fn engine_command(
     Ok((cmd, None))
 }
 
-/// Pick a Python interpreter that exists. `MANA_PYTHON` overrides the search.
+/// Pick a Python interpreter that exists **and can actually import piper**.
+/// `MANA_PYTHON` overrides the search.
+///
+/// Checking the import (not just the file) matters: on Windows runners there
+/// are several interpreters (`py` launcher vs `python`), and only the one the
+/// package was pip-installed into can run the engine. The result is cached
+/// for the process lifetime.
 fn python_interpreter() -> Option<PathBuf> {
-    if let Some(custom) = std::env::var_os("MANA_PYTHON") {
-        let p = PathBuf::from(custom);
-        if exists_on_path(&p) {
-            return Some(p);
-        }
-        return None;
-    }
-    #[cfg(windows)]
-    let candidates = ["py", "python", "python3"];
-    #[cfg(not(windows))]
-    let candidates = ["python3", "python"];
-    candidates
-        .iter()
-        .map(PathBuf::from)
-        .find(|p| exists_on_path(p))
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<Option<PathBuf>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            // Explicit override wins if it can run the engine.
+            if let Some(custom) = std::env::var_os("MANA_PYTHON") {
+                let resolved = if custom.as_os_str().is_empty() {
+                    None
+                } else {
+                    let p = PathBuf::from(&custom);
+                    if p.is_absolute() {
+                        Some(p)
+                    } else {
+                        first_on_path(&p)
+                    }
+                };
+                match resolved {
+                    Some(full) if can_import_piper(&full) => return Some(full),
+                    _ => return None,
+                }
+            }
+            #[cfg(windows)]
+            let names = ["python", "python3", "py"];
+            #[cfg(not(windows))]
+            let names = ["python3", "python"];
+            // Every interpreter on PATH, in PATH order; the first one that
+            // can actually import piper wins. A bare-name lookup alone is not
+            // enough: one PATH entry may hold an interpreter without the
+            // package while a later one has it.
+            std::env::var_os("PATH").and_then(|paths| {
+                std::env::split_paths(&paths).find_map(|dir| {
+                    names.iter().find_map(|n| {
+                        let base = dir.join(n);
+                        with_platform_ext(&base)
+                            .filter(|f| f.is_file())
+                            .filter(|f| can_import_piper(f))
+                    })
+                })
+            })
+        })
+        .clone()
 }
 
-fn exists_on_path(p: &Path) -> bool {
-    if p.is_absolute() {
-        return p.is_file();
-    }
-    // Windows executables carry an extension (python.exe); a bare name never
-    // matches a file, so PATH lookup must try the PATHEXT candidates too.
-    #[cfg(windows)]
-    let names: Vec<PathBuf> = ["", ".exe", ".bat", ".cmd"]
+/// First absolute match of a bare name on PATH, if any.
+fn first_on_path(p: &Path) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|d| d.join(p))
+            .find(|f| f.is_file())
+    })
+}
+
+/// On Windows a bare name never matches (`python.exe`); try PATHEXT-ish
+/// suffixes. Elsewhere the name is used as-is.
+#[cfg(windows)]
+fn with_platform_ext(p: &PathBuf) -> Option<PathBuf> {
+    ["", ".exe", ".bat", ".cmd"]
         .iter()
         .map(|ext| {
             let mut q = p.as_os_str().to_owned();
             q.push(ext);
             PathBuf::from(q)
         })
-        .collect();
-    #[cfg(not(windows))]
-    let names = vec![p.to_path_buf()];
-    std::env::var_os("PATH").map_or(false, |paths| {
-        std::env::split_paths(&paths).any(|d| names.iter().any(|n| d.join(n).is_file()))
-    })
+        .find(|f| f.is_file())
+}
+
+#[cfg(not(windows))]
+fn with_platform_ext(p: &PathBuf) -> Option<PathBuf> {
+    Some(p.clone())
+}
+
+/// True when `<python> -c "import piper"` exits 0 (fast; cached by caller).
+fn can_import_piper(python: &Path) -> bool {
+    std::process::Command::new(python)
+        .arg("-c")
+        .arg("import piper")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -207,20 +257,20 @@ mod tests {
     #[test]
     fn absolute_paths_are_checked_directly() {
         // A shell exists on every Unix runner; the Windows system shell
-        // plays the same role there (see the .exe probing in exists_on_path).
+        // plays the same role there.
         #[cfg(not(windows))]
-        assert!(exists_on_path(Path::new("/bin/sh")));
+        assert!(first_on_path(Path::new("sh")).is_some());
         #[cfg(windows)]
-        assert!(exists_on_path(Path::new(r"C:\Windows\System32\cmd.exe")));
-        assert!(!exists_on_path(Path::new("/nonexistent-xyz-123")));
+        assert!(first_on_path(Path::new("cmd")).is_some());
+        assert!(first_on_path(Path::new("definitely-not-a-real-binary-xyz")).is_none());
     }
 
     #[test]
-    fn bare_names_resolve_through_path() {
-        // `sh` exists on every Unix runner; on Windows the .exe probing above
-        // is what makes this true for `python`.
+    fn interpreter_without_piper_is_rejected() {
+        // /bin/sh exists but cannot `import piper`; the probe must say no.
+        // (On Windows sh is absent, so the test asserts the negative only.)
         #[cfg(not(windows))]
-        assert!(exists_on_path(Path::new("sh")));
-        assert!(!exists_on_path(Path::new("definitely-not-a-real-binary-xyz")));
+        assert!(!can_import_piper(Path::new("/bin/sh")));
+        assert!(!can_import_piper(Path::new("/nonexistent-xyz-123")));
     }
 }
