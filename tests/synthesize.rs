@@ -59,3 +59,25 @@ fn bundled_engine_synthesizes_without_python() {
     assert!(frames > spec.sample_rate, "must exceed 1s, got {frames} frames");
     std::fs::remove_file(&out).ok();
 }
+
+/// The documented Windows/macOS path: official piper-tts package, text passed
+/// as argv (never stdin, which Python decodes with the ambient locale).
+#[test]
+fn python_package_synthesizes_with_argv_text() {
+    let out = unique_wav("pyargv");
+    mana_tts::tts::synthesize_with(
+        std::path::Path::new("tools/piper/does-not-exist"),
+        std::path::Path::new("models/fa_IR-mana-medium.onnx"),
+        "سلام دنیا، تست مسیر رسمی پایتون.",
+        1.0,
+        &out,
+    )
+    .expect("piper-tts package must synthesize (pip install piper-tts)");
+
+    let reader = hound::WavReader::open(&out).expect("output must be a valid wav");
+    let spec = reader.spec();
+    assert_eq!(spec.sample_rate, 22050);
+    let frames = reader.len() / spec.channels as u32;
+    assert!(frames > spec.sample_rate, "must exceed 1s, got {frames} frames");
+    std::fs::remove_file(&out).ok();
+}

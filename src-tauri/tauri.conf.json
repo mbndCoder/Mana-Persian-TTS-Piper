@@ -25,7 +25,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "deb"],
+    "targets": [
+      "appimage",
+      "deb"
+    ],
     "category": "Utility",
     "icon": [
       "icons/32x32.png",
@@ -38,7 +41,9 @@
     "resources": [
       "../models/fa_IR-mana-medium.onnx",
       "../models/fa_IR-mana-medium.onnx.json",
-      "../licenses"
+      "../licenses",
+      "../tools/piper/piper",
+      "../tools/piper/espeak-ng-data"
     ]
   }
 }

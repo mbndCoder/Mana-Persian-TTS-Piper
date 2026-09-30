@@ -9,3 +9,4 @@ __pycache__/
 tools/piper/
 tools/*.tar.gz
 models/tokens.txt
+scratch/
