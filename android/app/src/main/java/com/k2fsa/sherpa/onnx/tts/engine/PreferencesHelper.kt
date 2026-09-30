@@ -3,7 +3,7 @@ import android.content.SharedPreferences
 
 class PreferenceHelper(context: Context) {
 
-    private val PREFS_NAME = "com.mana.tts"
+    private val PREFS_NAME = "com.k2fsa.sherpa.onnx.tts.engine"
     private val SPEED_KEY = "speed"
     private val SID_KEY = "speaker_id"
 

@@ -1,4 +1,4 @@
-package com.mana.tts
+package com.k2fsa.sherpa.onnx.tts.engine
 
 import android.app.Activity
 import android.os.Bundle

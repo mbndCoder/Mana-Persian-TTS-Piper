@@ -1,4 +1,4 @@
-package com.mana.tts
+package com.k2fsa.sherpa.onnx.tts.engine
 
 import android.app.Application
 import android.speech.tts.TextToSpeech

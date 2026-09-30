@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "com.mana.tts"
+    namespace = "com.k2fsa.sherpa.onnx.tts.engine"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.mana.tts"
+        applicationId = "com.k2fsa.sherpa.onnx.tts.engine"
         minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 20260910
+        versionName = "1.13.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -61,7 +61,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.9.0")
-    implementation(files("../libs/sherpa-onnx-1.13.8.aar"))
     implementation(files("../libs/sherpa-onnx-1.13.8.aar"))
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

@@ -1,4 +1,4 @@
-package com.mana.tts
+package com.k2fsa.sherpa.onnx.tts.engine
 
 import android.app.Activity
 import android.content.Intent
@@ -52,10 +52,6 @@ fun getSampleText(lang: String): String {
 
         "eng" -> {
             text = "How are you doing today? This is a text-to-speech engine using next generation Kaldi"
-        }
-
-        "fas" -> {
-            text = "سلام! موتور تبدیل متن به گفتار مانا آماده است."
         }
 
         "fas" -> {

@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 
-package com.mana.tts
+package com.k2fsa.sherpa.onnx.tts.engine
 
 import PreferenceHelper
 import android.content.Intent
@@ -47,7 +47,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.k2fsa.sherpa.onnx.GenerationConfig
-import com.mana.tts.ui.theme.ManaTtsTheme
+import com.k2fsa.sherpa.onnx.tts.engine.ui.theme.SherpaOnnxTtsEngineTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
 
         val preferenceHelper = PreferenceHelper(this)
         setContent {
-            ManaTtsTheme {
+            SherpaOnnxTtsEngineTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -345,7 +345,7 @@ class MainActivity : ComponentActivity() {
                                             } else {
                                                 val uri = FileProvider.getUriForFile(
                                                     context,
-                                                    "com.mana.tts.fileprovider",
+                                                    "com.k2fsa.sherpa.onnx.tts.engine.fileprovider",
                                                     file
                                                 )
                                                 val intent = Intent(Intent.ACTION_SEND).apply {

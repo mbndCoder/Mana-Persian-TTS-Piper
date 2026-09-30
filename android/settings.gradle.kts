@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ManaTtsEngine"
+rootProject.name = "SherpaOnnxTtsEngine"
 include(":app")

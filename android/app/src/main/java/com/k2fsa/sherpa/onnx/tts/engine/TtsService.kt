@@ -1,4 +1,4 @@
-package com.mana.tts
+package com.k2fsa.sherpa.onnx.tts.engine
 
 import android.media.AudioFormat
 import com.k2fsa.sherpa.onnx.GenerationConfig

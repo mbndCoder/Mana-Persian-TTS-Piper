@@ -1,4 +1,4 @@
-package com.mana.tts.ui.theme
+package com.k2fsa.sherpa.onnx.tts.engine.ui.theme
 
 import android.app.Activity
 import android.os.Build
@@ -38,7 +38,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun ManaTtsTheme(
+fun SherpaOnnxTtsEngineTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = true,

@@ -1,4 +1,4 @@
-package com.mana.tts.ui.theme
+package com.k2fsa.sherpa.onnx.tts.engine.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

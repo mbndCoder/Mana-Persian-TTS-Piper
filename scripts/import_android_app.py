@@ -107,33 +107,24 @@ def main() -> int:
     dst.write_bytes(fetch(HELPER_URL))
     print(f"[+] {HELPER_DST} (upstream helper, package untouched)")
 
-    # engine sources move to the new package
+    # engine sources stay at their upstream paths (nothing is renamed anywhere)
     for rel in ENGINE_KT:
-        src = ROOT / rel
         data = fetch(f"{UPSTREAM}/{rel}")
-        dst = ROOT / rel.replace(OLD_DIR, NEW_DIR)
+        dst = ROOT / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(data)
 
-    # test stubs (kept compiling, package-renamed with the rest).
-    # NOTE: upstream paths differ from ours, so they are fetched straight
-    # into the new package (a previous version moved them and deleted them).
-    for rel, new_rel in [
-        (
-            "app/src/test/java/com/k2fsa/sherpa/onnx/tts/engine/ExampleUnitTest.kt",
-            "app/src/test/java/com/mana/tts/ExampleUnitTest.kt",
-        ),
-        (
-            "app/src/androidTest/java/com/k2fsa/sherpa/onnx/tts/engine/ExampleInstrumentedTest.kt",
-            "app/src/androidTest/java/com/mana/tts/ExampleInstrumentedTest.kt",
-        ),
+    # test stubs, kept at their upstream paths (nothing is renamed anywhere)
+    for rel in [
+        "app/src/test/java/com/k2fsa/sherpa/onnx/tts/engine/ExampleUnitTest.kt",
+        "app/src/androidTest/java/com/k2fsa/sherpa/onnx/tts/engine/ExampleInstrumentedTest.kt",
     ]:
         try:
             data = fetch(f"{UPSTREAM}/{rel}")
         except Exception as exc:
             print(f"[!] skip {rel}: {exc}")
             continue
-        dst = ROOT / new_rel
+        dst = ROOT / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(data)
 
