@@ -41,9 +41,7 @@
     "resources": [
       "../models/fa_IR-mana-medium.onnx",
       "../models/fa_IR-mana-medium.onnx.json",
-      "../licenses",
-      "../tools/piper/piper",
-      "../tools/piper/espeak-ng-data"
+      "../licenses"
     ]
   }
 }

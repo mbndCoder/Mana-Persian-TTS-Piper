@@ -92,7 +92,19 @@ jobs:
 
       - name: Run tests (core, fallback path, app logic)
         shell: bash
-        run: cargo test --workspace
+        run: |
+          # The committed config must stay portable: any OS-specific engine
+          # path (e.g. tools/piper) breaks the other two runners at bundle
+          # time with a bare 'resource path doesn't exist'.
+          python - <<'PY'
+          import json, pathlib, sys
+          cfg = json.loads(pathlib.Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+          bad = [r for r in cfg["bundle"]["resources"] if "tools/" in r]
+          if bad:
+              sys.exit(f"non-portable resources committed in tauri.conf.json: {bad}")
+          print("committed resources are portable")
+          PY
+          cargo test --workspace
 
       - name: Build app
         uses: tauri-apps/tauri-action@v0
