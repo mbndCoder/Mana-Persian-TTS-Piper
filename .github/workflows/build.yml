@@ -37,40 +37,34 @@ jobs:
       # Fail fast on a matrix that has drifted. A bare comma inside a flow
       # mapping silently truncates a value (see the note above), and that
       # produced a release missing its .deb with no error anywhere.
+      #
+      # Uses GitHub's own expression engine rather than a YAML parser, so it
+      # runs before setup-python and needs no PyYAML on any runner.
       - name: Validate matrix
         shell: bash
+        env:
+          OS: ${{ matrix.os }}
+          BUNDLES: ${{ matrix.bundles }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import sys, yaml
-          cfg = yaml.safe_load(open(".github/workflows/build.yml", encoding="utf-8"))
-          inc = cfg["jobs"]["app"]["strategy"]["matrix"]["include"]
-          # The bundle list each runner must produce.
-          want = {
-              "ubuntu-22.04": "appimage,deb",
-              "windows-latest": "nsis",
-              "macos-latest": "dmg",
-          }
-          seen = {}
-          for e in inc:
-              os_ = e.get("os")
-              expected = want.get(os_)
-              if expected is None:
-                  sys.exit(f"unexpected runner in matrix: {os_!r}")
-              got = e.get("bundles")
-              if got != expected:
-                  sys.exit(f"{os_}: expected bundles={expected!r}, got {got!r}")
-              # A stray key means a bare comma was parsed as a separator.
-              stray = set(e) - {"os", "target", "bundles"}
-              if stray:
-                  sys.exit(f"{os_}: unexpected matrix keys {sorted(stray)} "
-                           f"(a bare comma in the flow mapping?)")
-              seen[os_] = got
-          missing = set(want) - set(seen)
-          if missing:
-              sys.exit(f"matrix lost runners: {sorted(missing)}")
-          print("matrix ok:", seen)
-          PY
+          fail() { echo "matrix: $1" >&2; exit 1; }
+          test -n "$TARGET" || fail "empty target"
+
+          # Split the comma list with IFS rather than matching it with a
+          # `case` glob: in a case pattern `,` is the separator, exactly like
+          # in YAML, so `*,deb,*` never matches anything.
+          IFS=',' read -r -a entries <<< "$BUNDLES"
+          has() { local want="$1"; for e in "${entries[@]}"; do [ "$e" = "$want" ] && return 0; done; return 1; }
+
+          case "$OS" in
+            ubuntu-22.04)  has appimage || fail "linux is missing the appimage entry: '$BUNDLES'"
+                           has deb      || fail "linux is missing the deb entry: '$BUNDLES' (is the matrix value quoted?)" ;;
+            windows-latest) has nsis || fail "windows is missing the nsis entry: '$BUNDLES'" ;;
+            macos-latest)   has dmg  || fail "macos is missing the dmg entry: '$BUNDLES'" ;;
+            *) fail "unexpected runner '$OS'" ;;
+          esac
+          echo "matrix ok: $OS target=$TARGET bundles=[${entries[*]}] (${#entries[@]} entries)"
 
       - name: Install Linux system deps
         if: runner.os == 'Linux'
