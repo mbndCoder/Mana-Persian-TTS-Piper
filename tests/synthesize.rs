@@ -29,6 +29,11 @@ fn synthesize_produces_valid_persian_wav() {
 /// The engine is now a self-contained binary for every platform, so the app
 /// must not depend on Python at all. This asserts the packaged engine is
 /// present and speaks, which is what ships to users.
+///
+/// Linux-only: the native binary is only ever downloaded/bundled on Linux.
+/// Windows and macOS intentionally use the documented piper-tts package
+/// instead (see `python_package_synthesizes_with_argv_text`).
+#[cfg(target_os = "linux")]
 #[test]
 fn bundled_engine_synthesizes_without_python() {
     let engine = if cfg!(windows) {

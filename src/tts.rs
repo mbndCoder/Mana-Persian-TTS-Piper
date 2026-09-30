@@ -182,7 +182,40 @@ fn exists_on_path(p: &Path) -> bool {
     if p.is_absolute() {
         return p.is_file();
     }
+    // Windows executables carry an extension (python.exe); a bare name never
+    // matches a file, so PATH lookup must try the PATHEXT candidates too.
+    #[cfg(windows)]
+    let names: Vec<PathBuf> = ["", ".exe", ".bat", ".cmd"]
+        .iter()
+        .map(|ext| {
+            let mut q = p.as_os_str().to_owned();
+            q.push(ext);
+            PathBuf::from(q)
+        })
+        .collect();
+    #[cfg(not(windows))]
+    let names = vec![p.to_path_buf()];
     std::env::var_os("PATH").map_or(false, |paths| {
-        std::env::split_paths(&paths).any(|d| d.join(p).is_file())
+        std::env::split_paths(&paths).any(|d| names.iter().any(|n| d.join(n).is_file()))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absolute_paths_are_checked_directly() {
+        assert!(exists_on_path(Path::new("/bin/sh")));
+        assert!(!exists_on_path(Path::new("/nonexistent-xyz-123")));
+    }
+
+    #[test]
+    fn bare_names_resolve_through_path() {
+        // `sh` exists on every Unix runner; on Windows the .exe probing above
+        // is what makes this true for `python`.
+        #[cfg(not(windows))]
+        assert!(exists_on_path(Path::new("sh")));
+        assert!(!exists_on_path(Path::new("definitely-not-a-real-binary-xyz")));
+    }
 }

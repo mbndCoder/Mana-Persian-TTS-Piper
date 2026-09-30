@@ -95,10 +95,16 @@ jobs:
         run: |
           # The committed config must stay portable: any OS-specific engine
           # path (e.g. tools/piper) breaks the other two runners at bundle
-          # time with a bare 'resource path doesn't exist'.
+          # time with a bare 'resource path doesn't exist'. NOTE: this checks
+          # the committed file (HEAD), because earlier steps legitimately
+          # append the platform engine to the working tree on Linux.
           python - <<'PY'
-          import json, pathlib, sys
-          cfg = json.loads(pathlib.Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+          import json, subprocess, sys
+          raw = subprocess.run(
+              ["git", "show", "HEAD:src-tauri/tauri.conf.json"],
+              capture_output=True, text=True, encoding="utf-8",
+          ).stdout
+          cfg = json.loads(raw)
           bad = [r for r in cfg["bundle"]["resources"] if "tools/" in r]
           if bad:
               sys.exit(f"non-portable resources committed in tauri.conf.json: {bad}")
