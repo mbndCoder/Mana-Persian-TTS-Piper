@@ -316,16 +316,19 @@ mod tests {
 
     #[test]
     fn api_info_exposes_url_absolute_output_and_curl() {
-        let dir = std::path::Path::new("/tmp/manatts-test-out");
-        let info = ApiInfo::for_port(8123, dir);
+        // Portable: build the expectation with the same join logic, so the
+        // test holds on Windows backslashes as well as Unix slashes.
+        let dir = std::env::temp_dir().join("manatts-test-out");
+        let info = ApiInfo::for_port(8123, &dir);
         assert!(info.running);
         assert_eq!(info.url, "http://127.0.0.1:8123/v1/audio/speech");
-        assert_eq!(info.output_path, "/tmp/manatts-test-out/speech.wav");
+        let expected_out = dir.join("speech.wav").to_string_lossy().into_owned();
+        assert_eq!(info.output_path, expected_out);
         assert!(info.curl.contains("/v1/audio/speech"));
         assert!(info.curl.contains("\"speed\""));
         // the example must state the absolute output path, not a bare filename
         assert!(
-            info.curl.contains("--output \"/tmp/manatts-test-out/speech.wav\""),
+            info.curl.contains(&format!("--output \"{expected_out}\"")),
             "curl must show the absolute path: {}",
             info.curl
         );
