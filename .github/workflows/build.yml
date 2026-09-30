@@ -23,7 +23,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04,  target: x86_64-unknown-linux-gnu, bundles: appimage,deb }
+          # NOTE: `bundles` must stay quoted. In a YAML flow mapping a bare
+          # comma is a separator, so `bundles: appimage,deb` parses as
+          # {bundles: appimage, deb: null} and the .deb silently never gets
+          # built. The Build step asserts the value round-trips.
+          - { os: ubuntu-22.04,  target: x86_64-unknown-linux-gnu, bundles: "appimage,deb" }
           - { os: windows-latest, target: x86_64-pc-windows-msvc,    bundles: nsis }
           - { os: macos-latest,   target: x86_64-apple-darwin,      bundles: dmg }
     runs-on: ${{ matrix.os }}
@@ -128,7 +132,26 @@ jobs:
         run: npm install -g @tauri-apps/cli@2
 
       - name: Build app
-        run: tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+        run: |
+          set -euo pipefail
+          # Guard: an unquoted "appimage,deb" in the matrix flow mapping is
+          # parsed as bundles=appimage plus a stray deb key, so the .deb is
+          # never built and every downstream step fails confusingly.
+          echo "target=$TARGET bundles='$BUNDLES'"
+          test -n "$BUNDLES"
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            for want in appimage deb; do
+              case ",$BUNDLES," in
+                *,$want,*) echo "  has $want" ;;
+                *) echo "Linux build is missing '$want' (bundle list: '$BUNDLES')"; exit 1 ;;
+              esac
+            done
+          fi
+          tauri build --target "$TARGET" --bundles "$BUNDLES"
 
       # Copy just the installers into one flat directory so each artifact is a
       # flat file list. Uploading the whole bundle/ directory pulled in .sig
