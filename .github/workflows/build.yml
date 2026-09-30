@@ -124,13 +124,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v${{ github.run_number }}
-          releaseName: "ManaTTS v${{ github.run_number }}"
+          tagName: desktop-${{ matrix.name }}
+          releaseName: "ManaTTS Desktop — ${{ matrix.name }}"
           releaseBody: |
             Persian offline TTS (Mana Piper voice).
-            Windows/macOS need: pip install piper-tts
+
+            Linux:   no prerequisites (AppImage/deb are self-contained)
+            Windows: needs Python 3.10+ and `pip install piper-tts`
+            macOS:   needs Python 3.10+ and `pip install piper-tts`
           releaseDraft: true
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      # Publish the desktop builds to stable per-OS tags (drafts stay out of
+      # the way so users always find a named release).
+      - uses: svenstaro/upload-release-action@v2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file_glob: true
+          file: target/${{ matrix.target }}/release/bundle/**/*
+          tag: desktop-${{ matrix.name }}-latest
+          release_name: "ManaTTS Desktop (${{ matrix.name }}) — Latest"
+          body: |
+            Always the newest ManaTTS desktop build for **${{ matrix.name }}**.
+
+            Linux: no prerequisites.
+            Windows/macOS: install Python 3.10+ then `pip install piper-tts`.
+          overwrite: true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
