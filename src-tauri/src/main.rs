@@ -445,6 +445,31 @@ mod tests {
     /// path Tauri hands back does not exist. The files live one level deeper:
     /// `/usr/lib/ManaTTS/_up_/{tools,models}`.
     ///
+    /// Guards the naming assumption behind the bug above.
+    ///
+    /// tauri-utils derives the Linux resource directory from the **Cargo
+    /// package name** while tauri-bundler writes resources under the
+    /// **productName**. Those two differ here, which is exactly why
+    /// `resource_dir()` pointed somewhere empty. `find_in` copes with it by
+    /// probing `_up_`, so this test only records the divergence and fails if
+    /// someone renames the product without thinking about the resolver.
+    #[test]
+    fn product_name_and_cargo_package_name_are_recorded() {
+        let cfg = include_str!("../tauri.conf.json");
+        let product = cfg
+            .split("\"productName\"")
+            .nth(1)
+            .and_then(|s| s.split('"').nth(1))
+            .expect("productName in tauri.conf.json");
+
+        // From Cargo.toml: name = "mana-tts-app"
+        assert_eq!(
+            product, "ManaTTS",
+            "productName changed; re-check that find_in still covers where \
+             tauri-bundler writes resources vs what resource_dir() returns"
+        );
+    }
+
     /// The old resolver only descended one level from the resource dir, so it
     /// stopped at `/usr/lib/ManaTTS` and never saw the `_up_` component.
     #[test]
