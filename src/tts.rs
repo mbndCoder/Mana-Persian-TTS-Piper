@@ -211,11 +211,14 @@ fn python_interpreter() -> Option<PathBuf> {
 }
 
 /// First absolute match of a bare name on PATH, if any.
+/// Extension-aware on Windows (`cmd` must match `cmd.exe`); the bare-name
+/// trap already bit us once in production code, so it lives here centrally.
 fn first_on_path(p: &Path) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths)
-            .map(|d| d.join(p))
-            .find(|f| f.is_file())
+        std::env::split_paths(&paths).find_map(|d| {
+            let base = d.join(p);
+            with_platform_ext(&base).filter(|f| f.is_file())
+        })
     })
 }
 
@@ -267,10 +270,11 @@ mod tests {
 
     #[test]
     fn interpreter_without_piper_is_rejected() {
-        // /bin/sh exists but cannot `import piper`; the probe must say no.
-        // (On Windows sh is absent, so the test asserts the negative only.)
+        // A binary that exists but can never `import piper` must be rejected.
+        // (/bin/false ignores its args and exits 1 on Unix; the missing-file
+        // case below covers every platform including Windows.)
         #[cfg(not(windows))]
-        assert!(!can_import_piper(Path::new("/bin/sh")));
+        assert!(!can_import_piper(Path::new("/bin/false")));
         assert!(!can_import_piper(Path::new("/nonexistent-xyz-123")));
     }
 }
