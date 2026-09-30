@@ -358,13 +358,25 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Serializes the find_in tests: they all scan the shared temp-dir parent,
+    /// so parallel runs see each other's fixture directories.
+    static FIND_IN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn unique_root(prefix: &str) -> std::path::PathBuf {
+        let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id()))
+    }
 
     /// Regression: the real bundle layout is <root>/tools/piper/piper and
     /// <root>/models/*.onnx, but the resolver used to look for <root>/piper/piper,
     /// so the packaged app could never find its engine.
     #[test]
     fn find_in_matches_the_real_bundle_layout() {
-        let root = std::env::temp_dir().join(format!("manatts-layout-{}", std::process::id()));
+        let _guard = FIND_IN_LOCK.lock().unwrap();
+        let root = unique_root("manatts-layout");
         let piper_dir = root.join("tools/piper");
         let model_dir = root.join("models");
         std::fs::create_dir_all(&piper_dir).unwrap();
@@ -380,8 +392,9 @@ mod tests {
 
     #[test]
     fn find_in_matches_the_appimage_up_layout() {
+        let _guard = FIND_IN_LOCK.lock().unwrap();
         // Real AppImage layout: <resource_dir>/_up_/tools/piper/piper
-        let root = std::env::temp_dir().join(format!("manatts-up-{}", std::process::id()));
+        let root = unique_root("manatts-up");
         let up = root.join("_up_");
         let piper_dir = up.join("tools/piper");
         let model_dir = up.join("models");
@@ -405,7 +418,8 @@ mod tests {
 
     #[test]
     fn find_in_also_accepts_a_flat_layout() {
-        let root = std::env::temp_dir().join(format!("manatts-flat-{}", std::process::id()));
+        let _guard = FIND_IN_LOCK.lock().unwrap();
+        let root = unique_root("manatts-flat");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("piper"), b"x").unwrap();
         std::fs::write(root.join("fa_IR-mana-medium.onnx"), b"x").unwrap();
@@ -415,7 +429,8 @@ mod tests {
 
     #[test]
     fn find_in_returns_none_when_engine_is_absent() {
-        let root = std::env::temp_dir().join(format!("manatts-empty-{}", std::process::id()));
+        let _guard = FIND_IN_LOCK.lock().unwrap();
+        let root = unique_root("manatts-empty");
         std::fs::create_dir_all(&root).unwrap();
         assert!(find_in(&root).is_none());
         std::fs::remove_dir_all(&root).ok();

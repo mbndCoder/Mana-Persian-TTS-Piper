@@ -206,7 +206,12 @@ mod tests {
 
     #[test]
     fn absolute_paths_are_checked_directly() {
+        // A shell exists on every Unix runner; the Windows system shell
+        // plays the same role there (see the .exe probing in exists_on_path).
+        #[cfg(not(windows))]
         assert!(exists_on_path(Path::new("/bin/sh")));
+        #[cfg(windows)]
+        assert!(exists_on_path(Path::new(r"C:\Windows\System32\cmd.exe")));
         assert!(!exists_on_path(Path::new("/nonexistent-xyz-123")));
     }
 
