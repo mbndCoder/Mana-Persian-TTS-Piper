@@ -119,38 +119,28 @@ jobs:
           PY
           cargo test --workspace
 
-      - name: Build app
+      # One release per OS, named and tagged predictably, published straight
+      # away. (Drafting here and re-uploading elsewhere doubled the release
+      # API calls and burned the rate limit with three parallel jobs.)
+      - name: Build app and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: desktop-${{ matrix.name }}
-          releaseName: "ManaTTS Desktop — ${{ matrix.name }}"
+          releaseName: "ManaTTS Desktop (${{ matrix.name }})"
           releaseBody: |
-            Persian offline TTS (Mana Piper voice).
+            Persian offline text-to-speech with the Mana voice.
 
-            Linux:   no prerequisites (AppImage/deb are self-contained)
-            Windows: needs Python 3.10+ and `pip install piper-tts`
-            macOS:   needs Python 3.10+ and `pip install piper-tts`
-          releaseDraft: true
+            **${{ matrix.name }}** — always the newest build for this OS.
+
+            - Linux: no prerequisites at all.
+            - Windows / macOS: install Python 3.10+, then `pip install piper-tts`.
+
+            After installing, the app serves a local OpenAI-compatible API on
+            http://127.0.0.1:7788 — see the README.
+          releaseDraft: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-
-      # Publish the desktop builds to stable per-OS tags (drafts stay out of
-      # the way so users always find a named release).
-      - uses: svenstaro/upload-release-action@v2
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file_glob: true
-          file: target/${{ matrix.target }}/release/bundle/**/*
-          tag: desktop-${{ matrix.name }}-latest
-          release_name: "ManaTTS Desktop (${{ matrix.name }}) — Latest"
-          body: |
-            Always the newest ManaTTS desktop build for **${{ matrix.name }}**.
-
-            Linux: no prerequisites.
-            Windows/macOS: install Python 3.10+ then `pip install piper-tts`.
-          overwrite: true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
