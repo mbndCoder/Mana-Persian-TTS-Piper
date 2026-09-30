@@ -1,0 +1,93 @@
+name: Build Android TTS Engine
+
+# System TTS-engine APK with the Mana Persian voice, built exactly the way
+# upstream sherpa-onnx builds its own piper-model APKs:
+#   model assets (onnx + tokens.txt + espeak-ng-data) -> gradle assemble.
+# No NDK is needed: the official sherpa-onnx AAR already carries native .so
+# libraries for all four ABIs.
+#
+# Reference: https://github.com/k2-fsa/sherpa-onnx (Apache-2.0)
+# App source: android/SherpaOnnxTtsEngine, rebranded to com.mana.tts.
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+    paths:
+      - "android/**"
+      - "scripts/android_model.py"
+      - "scripts/import_android_app.py"
+      - "scripts/rebrand_android.py"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0" 2>&1 | tail -2
+          sdkmanager --licenses > /dev/null <<< "y"
+
+      # 48MB AAR: JNI bindings + native .so for arm64-v8a, armeabi-v7a,
+      # x86 and x86_64. Pinned to the sherpa-onnx release.
+      - name: Download sherpa-onnx AAR
+        run: |
+          set -euo pipefail
+          mkdir -p android/libs
+          curl -fL --retry 3 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar \
+            -o android/libs/sherpa-onnx-1.13.8.aar
+          python -c "import zipfile; z=zipfile.ZipFile('android/libs/sherpa-onnx-1.13.8.aar'); assert any('arm64-v8a' in n for n in z.namelist()), 'no arm64 libs'; print('AAR ok:', len(z.namelist()), 'entries')"
+
+      - name: Download Mana model + espeak data
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          curl -fL --retry 3 https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx \
+            -o models/fa_IR-mana-medium.onnx
+          curl -fL --retry 3 https://huggingface.co/MahtaFetrat/Mana-Persian-Piper/resolve/main/fa_IR-mana-medium.onnx.json \
+            -o models/fa_IR-mana-medium.onnx.json
+          curl -fL --retry 3 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2 \
+            -o models/espeak-ng-data.tar.bz2
+          python -m pip install -q onnx
+          python scripts/android_model.py
+
+      - name: Assemble debug APK (debug-signed, installable)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Verify APK
+        run: |
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          ls -lh "$APK"
+          unzip -l "$APK" | grep -E "lib/arm64|fa_IR-mana-medium.onnx|tokens.txt|espeak-ng-data/fa_dict|classes.dex" | head -8
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: manatts-tts-engine-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

@@ -10,3 +10,10 @@ tools/piper/
 tools/*.tar.gz
 models/tokens.txt
 scratch/
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/libs/*.aar
+android/app/src/main/assets/vits-piper-*/
+models/*.sherpa.onnx
