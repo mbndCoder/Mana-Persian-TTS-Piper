@@ -107,3 +107,19 @@ jobs:
           name: manatts-tts-engine-apk
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # Stable tag so users always download from one place (desktop drafts
+      # use per-run tags instead).
+      - uses: svenstaro/upload-release-action@v2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: android/app/build/outputs/apk/debug/app-debug.apk
+          asset_name: ManaTTS-tts-engine.apk
+          tag: android-latest
+          release_name: "ManaTTS TTS Engine (Android)"
+          body: |
+            System text-to-speech engine with the Mana Persian voice.
+            Install, then select it in Android Settings → Accessibility →
+            Text-to-speech output. No internet needed afterwards.
+          overwrite: true

@@ -272,8 +272,11 @@ mana-tts/
 بله — جدول لایسنس پایین را ببین.
 
 **اندروید چی؟**
-در راه است: اپ TTS انجین مبتنی بر sherpa-onnx با همین صدای مانا. جزئیات
-پایین در «نقشه راه».
+در راه است: اپ TTS انجین (موتور تبدیل متن به گفتار در سطح سیستم) با صدای مانا —
+بر پایه [`SherpaOnnxTtsEngine`](https://github.com/k2-fsa/sherpa-onnx/tree/master/android/SherpaOnnxTtsEngine)
+که دقیقاً برای مدل‌های piper ساخته شده (نمونه‌های فارسی آماده‌اش مثل
+`fa_IR-amir-medium` [اینجا](https://k2-fsa.github.io/sherpa/onnx/tts/apk.html) هستند).
+سورس در پوشه [`android/`](android/) همین ریپو و بیلد در CI انجام می‌شود.
 
 </div>
 
@@ -291,7 +294,19 @@ mana-tts/
 - [ ] **اندروید:** اپ TTS انجین (system Text-to-Speech) با صدای مانا —
   بر پایه [`SherpaOnnxTtsEngine`](https://github.com/k2-fsa/sherpa-onnx/tree/master/android/SherpaOnnxTtsEngine)
   که دقیقاً برای مدل‌های piper ساخته شده (نمونه‌های فارسی آماده‌اش مثل
-  `fa_IR-amir-medium` [اینجا](https://k2-fsa.github.io/sherpa/onnx/tts/apk.html) هستند)
+  `fa_IR-amir-medium` [اینجا](https://k2-fsa.github.io/sherpa/onnx/tts/apk.html) هستند).
+  سورس در [`android/`](android/) همین ریپو است و APK در CI ساخته می‌شود.
+
+### نصب TTS انجین روی گوشی (وقتی Release منتشر شد)
+
+1. فایل `ManaTTS-tts-engine.apk` را از تب Releases بگیر و نصب کن
+   (اول‌بار اجازه «نصب از منابع ناشناس» را بده).
+2. برو به «تنظیمات → دسترسی‌پذیری → خروجی متن به گفتار» (یا
+   Settings → Accessibility → Text-to-speech output).
+3. «موتور ترجیحی» را روی **موتور گفتار مانا** بگذار.
+4. دکمه پخش نمونه را بزن — باید جمله فارسی را با صدای مانا بشنوی.
+5. از این به بعد هر اپی (مرورگر، کتاب‌خوان، گوگل ترنسلیت) می‌تواند با
+   صدای مانا بخواند. اینترنت لازم نیست.
 
 </div>
 
